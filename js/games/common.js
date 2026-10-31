@@ -2,17 +2,27 @@
 // pantalla con barra superior, temporizador compartido y estado con autoridad del anfitrión.
 import { h, now, fmtTime, setKids } from '../core/util.js';
 import { sfx } from '../core/audio.js';
+import { svgIcon } from '../ui/icons.js';
+import { celebrate } from '../ui/fx.js';
+import { gameById } from './registry.js';
+import { helpContent } from '../ui/worlds.js';
 
 // Pantalla estándar: barra superior (salir, título, temporizador) + cuerpo con scroll + capa para resultados.
 export function shell(root, ctx, title) {
+  const S = ctx.session, gid = S.game, info = gameById(gid), color = info?.world.color || '#ffcf4a';
   const titleEl = h('span', { class: 'title' }, title), timer = h('span', { class: 'timer', hidden: true }), extra = h('span');
-  const body = h('div', { class: 'wrap' }), overlay = h('div', { class: 'overlay', hidden: true });
-  const conn = h('span', { class: 'chip', hidden: ctx.session.role === 'local' }, h('i'), '');
-  const el = h('div', { class: 'gscreen' },
-    h('div', { class: 'gtop' }, h('button', { class: 'icon-btn', 'aria-label': 'Salir del juego', onclick: () => confirmExit() }, '✕'), titleEl, extra, timer),
-    h('div', { style: { padding: '4px max(12px, env(safe-area-inset-left, 0px)) 0' } }, conn),
+  const body = h('div', { class: 'wrap' }, h('p', { class: 'waiting', style: { marginTop: '30px' } }, h('span', { class: 'dot' }), S.role === 'guest' ? 'Conectando con tu pareja…' : 'Preparando…'));
+  const overlay = h('div', { class: 'overlay', hidden: true });
+  const conn = h('span', { class: 'chip', hidden: S.role === 'local' }, h('i'), '');
+  const helpBtn = h('button', { class: 'icon-btn', 'aria-label': 'Cómo se juega', onclick: () => openHelp() }, svgIcon('help'));
+  const el = h('div', { class: 'gscreen', style: { '--accent': color, '--accent-dk': dk(color) } },
+    h('div', { class: 'gtop' }, h('button', { class: 'icon-btn', 'aria-label': 'Salir del juego', onclick: () => confirmExit() }, svgIcon('close')), titleEl, extra, timer, helpBtn),
+    h('div', { class: 'gsub' }, conn),
     h('div', { class: 'scroll' }, body), overlay);
   root.append(el);
+  function openHelp() { ctx.ui.sheet('Cómo se juega', () => helpContent(gid), { ephemeral: true }); }
+  // La primera vez que alguien abre este juego, se muestran las instrucciones.
+  if (!ctx.store.profile.seenHelp?.[gid] && helpContent(gid).length) { openHelp(); ctx.store.updateProfile(p => { p.seenHelp = { ...(p.seenHelp || {}), [gid]: 1 }; }); }
   function confirmExit() {
     show(h('h2', null, '¿Salir del juego?'), h('p', { class: 'note' }, ctx.session.role === 'local' ? 'Se pierde la partida en curso.' : 'Tu pareja vuelve al mundo también.'),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => ctx.exit() }, 'Salir'), h('button', { class: 'btn primary', onclick: hide }, 'Seguir jugando')));
@@ -22,7 +32,7 @@ export function shell(root, ctx, title) {
   // Si se cae la conexión con la pareja, aviso de espera; desaparece cuando vuelve.
   const wait = h('div', { class: 'overlay', hidden: true }, h('div', { class: 'card' }, h('h2', null, 'Tu pareja se desconectó'), h('p', { class: 'waiting' }, h('span', { class: 'dot' }), 'Esperando a que vuelva…'), h('p', { class: 'note' }, 'La partida sigue guardada aquí. Si vuelve a abrir la isla, entra solo.'), h('button', { class: 'btn ghost', onclick: () => ctx.exit() }, 'Salir')));
   el.append(wait);
-  const S = ctx.session, offs = [S.onEvent('partner-left', d => { if (d) wait.hidden = false; }), S.onEvent('host-left', d => { if (d) wait.hidden = false; }), S.onEvent('partner-back', () => { wait.hidden = true; }), S.onEvent('rejoin', () => { wait.hidden = true; })];
+  const offs = [S.onEvent('partner-left', d => { if (d) wait.hidden = false; }), S.onEvent('host-left', d => { if (d) wait.hidden = false; }), S.onEvent('partner-back', () => { wait.hidden = true; }), S.onEvent('rejoin', () => { wait.hidden = true; })];
   const iv = setInterval(() => {
     if (ctx.session.role === 'local') return;
     const p = ctx.session.partner; conn.className = 'chip ' + (p ? 'ok' : 'bad');
@@ -31,10 +41,12 @@ export function shell(root, ctx, title) {
   return {
     el, body, overlay, show, hide, extra,
     setTitle: t => { titleEl.textContent = t; },
-    setTimer(sec) { if (sec == null) { timer.hidden = true; return; } timer.hidden = false; timer.textContent = fmtTime(sec); timer.classList.toggle('low', sec <= 30); },
+    setTimer(sec) { if (sec == null) { timer.hidden = true; return; } timer.hidden = false; setKids(timer, svgIcon('timer', 18), fmtTime(sec)); timer.classList.toggle('low', sec <= 30); },
     destroy() { clearInterval(iv); offs.forEach(f => f()); }
   };
 }
+
+const dk = hex => { const n = parseInt(hex.slice(1), 16), f = v => Math.round(v * 0.62); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
 
 // Estado compartido con autoridad del anfitrión.
 //  init(): estado inicial (solo anfitrión) · reduce(estado, acción, quien): nuevo estado o null si no aplica.
@@ -76,13 +88,14 @@ export function remaining(ctx, st) {
 }
 
 export function resultCard(ui, { win, title, lines = [], reward, onAgain, onNext, nextLabel, onExit }) {
-  (win ? sfx.win : sfx.lose)();
-  ui.show(h('p', { class: 'eyebrow' }, win ? 'Lo lograron' : 'Esta vez no'), h('h2', null, title),
+  (win ? sfx.win : sfx.lose)(); if (win) celebrate('big');
+  ui.show(h('div', { style: { display: 'grid', placeItems: 'center' } }, h('span', { style: { width: '64px', height: '64px', borderRadius: '22px', display: 'grid', placeItems: 'center', background: win ? 'var(--green)' : 'var(--red)', color: '#120d26', boxShadow: '0 4px 0 rgba(0,0,0,.3)' } }, svgIcon(win ? 'check' : 'close', 34))),
+    h('p', { class: 'eyebrow', style: { textAlign: 'center' } }, win ? 'Lo lograron' : 'Esta vez no'), h('h2', { style: { textAlign: 'center' } }, title),
     ...lines.map(l => h('p', { class: 'lead' }, l)),
     reward && (reward.xp || reward.coins) ? h('p', { class: 'reward' }, `+${reward.xp} XP · +${reward.coins} monedas`) : null,
-    onNext && h('button', { class: 'btn primary', onclick: onNext }, nextLabel || 'Siguiente'),
-    onAgain && h('button', { class: 'btn', onclick: onAgain }, 'Jugar otra vez'),
-    h('button', { class: 'btn ghost', onclick: onExit }, 'Salir al mundo'));
+    onNext && h('button', { class: 'btn primary', onclick: onNext }, svgIcon('play', 18), nextLabel || 'Siguiente'),
+    onAgain && h('button', { class: 'btn', onclick: onAgain }, svgIcon('refresh', 18), 'Jugar otra vez'),
+    h('button', { class: 'btn ghost', onclick: onExit }, svgIcon('back', 18), 'Volver al mundo'));
 }
 
 // Registra una partida terminada en el guardado compartido.

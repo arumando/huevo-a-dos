@@ -1,135 +1,162 @@
 // Desactiva la bomba: una persona ve la bomba y la otra tiene el manual. Solo hablando la desactivan.
-import { h, now, code as rcode, setKids } from '../../core/util.js';
+// El módulo abierto se comparte: el manual de la otra persona salta a esa página.
+import { h, now, setKids, DEBUG } from '../../core/util.js';
 import { sfx } from '../../core/audio.js';
+import { svgIcon } from '../../ui/icons.js';
+import { celebrate } from '../../ui/fx.js';
 import { shell, createSync, remaining, resultCard, finishMatch } from '../common.js';
-import { LEVELS, COLORS, SYMBOLS, SYMBOL_VALUES, SHAPES, makeBomb, leverTarget, lightTarget, symbolCode, calcTarget } from './modules.js';
+import { LEVELS, COLORS, SYMBOLS, MODULE_INFO, makeBomb, leverTarget, lightTarget, symbolCode, calcTarget } from './modules.js';
+import { manualPage, miniGrid, leverRow, sym, shapeSvg } from './manual.js';
 
-const svg = (inner, size = 34) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', size); s.setAttribute('height', size); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.innerHTML = inner; return s; };
-const shapeSvg = sh => svg({ 'triángulo': '<path d="M12 3l9 17H3z"/>', 'cuadrado': '<rect x="4" y="4" width="16" height="16"/>', 'círculo': '<circle cx="12" cy="12" r="9"/>', 'rombo': '<path d="M12 2l9 10-9 10-9-10z"/>' }[sh], 40);
+const COLOR_NAME = { rojo: 'ROJO', azul: 'AZUL', verde: 'VERDE', amarillo: 'AMARILLO' };
 
 export function mount(root, ctx) {
   const ui = shell(root, ctx, 'Desactiva la bomba'), S = ctx.session, other = by => (by === 'host' ? 'guest' : 'host');
   const startIdx = Math.max(0, LEVELS.findIndex(l => l.id === S.opts.level));
   const me = S.role === 'guest' ? 'guest' : 'host';
-  let bomb = null, bombKey = '', local = { lev: [], code: '', calc: '', luz: 0 }, lastStatus = '', rewarded = '', tick = 0;
+  let bomb = null, bombKey = '', local = {}, lastStatus = '', rewarded = '', tick = 0, page = 'intro', followFocus = true;
+  let seen = { bad: 0, ok: 0, focus: -1 }, playing = null;
 
-  const newLevel = (i, seed) => ({ lv: i, seed: seed || rcode(8), phase: 'roles', viewer: 'host', strikes: 0, solved: [], prog: [], t0: 0, dur: LEVELS[i].dur, penalty: 0, status: 'roles', flash: 0 });
+  const newLevel = (i, seed) => ({ lv: i, seed: seed || Math.random().toString(36).slice(2, 10), phase: 'roles', viewer: 'host', strikes: 0, solved: [], prog: [], t0: 0, dur: LEVELS[i].dur, penalty: 0, status: 'roles', focus: 0, bad: 0, ok: 0, okM: -1, badM: -1 });
   const sync = createSync(ctx, {
     init: () => newLevel(startIdx, S.id),
     reduce(st, a, by) {
       const b = makeBomb(st.seed, st.lv);
       if (a.k === 'role' && st.phase === 'roles') return { ...st, viewer: a.me === 'bomb' ? by : other(by) };
-      if (a.k === 'start' && st.phase === 'roles') return { ...st, phase: 'play', status: 'play', t0: now(), solved: b.modules.map(() => false), prog: b.modules.map(() => 0) };
+      if (a.k === 'start' && st.phase === 'roles') return { ...st, phase: 'play', status: 'play', t0: now(), solved: b.modules.map(() => false), prog: b.modules.map(() => 0), focus: 0 };
       if (a.k === 'next' && st.phase === 'end') return newLevel(Math.min(LEVELS.length - 1, st.status === 'win' ? st.lv + 1 : st.lv));
       if (a.k === 'again' && st.phase === 'end') return newLevel(st.lv);
       if (st.phase !== 'play') return null;
       if (a.k === 'timeout' && by === 'host') return { ...st, phase: 'end', status: 'boom' };
-      if (by !== st.viewer || !Number.isInteger(a.m) || !b.modules[a.m] || st.solved[a.m]) return null;
+      if (by !== st.viewer || !Number.isInteger(a.m) || !b.modules[a.m]) return null;
+      if (a.k === 'focus') return st.focus === a.m ? null : { ...st, focus: a.m };
+      if (st.solved[a.m]) return null;
       const m = b.modules[a.m]; let ok = null;
       if (a.k === 'pal' && m.type === 'palancas' && Array.isArray(a.pos)) ok = leverTarget(m).every((v, i) => !!a.pos[i] === v);
       else if (a.k === 'sim' && m.type === 'simbolos') ok = String(a.code) === symbolCode(m);
       else if (a.k === 'calc' && m.type === 'calculo') ok = +a.val === calcTarget(m, b.serial, b.modules.length);
       else if (a.k === 'luz' && m.type === 'luces' && Number.isInteger(a.cell)) {
         const p = st.prog[a.m];
-        if (lightTarget(m.seq[p]) === a.cell) { const prog = st.prog.slice(); prog[a.m] = p + 1; if (p + 1 < m.seq.length) return { ...st, prog, flash: st.flash + 1 }; ok = true; st = { ...st, prog }; }
+        if (lightTarget(m.seq[p]) === a.cell) { const prog = st.prog.slice(); prog[a.m] = p + 1; if (p + 1 < m.seq.length) return { ...st, prog, step: (st.step || 0) + 1 }; ok = true; st = { ...st, prog }; }
         else { ok = false; const prog = st.prog.slice(); prog[a.m] = 0; st = { ...st, prog }; }
       }
       if (ok === null) return null;
-      if (ok) { const solved = st.solved.slice(); solved[a.m] = true; const win = solved.every(Boolean); return { ...st, solved, flash: st.flash + 1, phase: win ? 'end' : 'play', status: win ? 'win' : 'play', end: win ? now() : 0 }; }
+      if (ok) {
+        const solved = st.solved.slice(); solved[a.m] = true; const win = solved.every(Boolean), nextF = solved.findIndex(x => !x);
+        return { ...st, solved, ok: st.ok + 1, okM: a.m, focus: nextF < 0 ? st.focus : nextF, phase: win ? 'end' : 'play', status: win ? 'win' : 'play' };
+      }
       const strikes = st.strikes + 1;
-      return { ...st, strikes, penalty: st.penalty + 15, flash: st.flash + 1, phase: strikes >= 3 ? 'end' : 'play', status: strikes >= 3 ? 'boom' : 'play', lastBad: (st.lastBad || 0) + 1 };
+      return { ...st, strikes, penalty: st.penalty + 15, bad: st.bad + 1, badM: a.m, phase: strikes >= 3 ? 'end' : 'play', status: strikes >= 3 ? 'boom' : 'play' };
     },
     onState: render
   });
 
-  let lastBad = 0;
   function render(st) {
     if (!st) return;
-    const key = st.seed + ':' + st.lv; if (key !== bombKey) { bombKey = key; bomb = makeBomb(st.seed, st.lv); local = { lev: bomb.modules.map(m => (m.type === 'palancas' ? m.start.slice() : null)), code: '', calc: '', luz: 0 }; }
-    if ((st.lastBad || 0) > lastBad) { lastBad = st.lastBad; sfx.bad(); if (navigator.vibrate) navigator.vibrate(200); }
+    const key = st.seed + ':' + st.lv;
+    if (key !== bombKey) { bombKey = key; bomb = makeBomb(st.seed, st.lv); local = { lev: bomb.modules.map(m => (m.type === 'palancas' ? m.start.slice() : null)), code: {}, calc: {} }; seen = { bad: st.bad, ok: st.ok, focus: -1 }; page = 'intro'; followFocus = true; }
+    const viewer = st.viewer === me;
+    // confirmaciones visibles en los dos teléfonos
+    if (st.bad > seen.bad) { seen.bad = st.bad; local.badAt = Date.now(); sfx.bad(); try { navigator.vibrate?.(200); } catch (e) {} ctx.ui.toast(`Error en ${MODULE_INFO[bomb.modules[st.badM]?.type]?.name || 'un módulo'}: ${st.strikes} de 3 · −15 s`, 'bad'); }
+    if (st.ok > seen.ok) { seen.ok = st.ok; sfx.ok(); if (st.phase !== 'end') { celebrate('small'); ctx.ui.toast(`¡${MODULE_INFO[bomb.modules[st.okM]?.type]?.name} desactivado!`, 'good'); } }
+    if (st.phase === 'play' && st.focus !== seen.focus) { if (!viewer && followFocus) page = bomb.modules[st.focus]?.type || page; seen.focus = st.focus; }
     ui.setTitle(LEVELS[st.lv].name);
     if (st.phase === 'roles') return renderRoles(st);
     if (st.status !== lastStatus) { lastStatus = st.status; if (st.phase === 'end') showEnd(st); else ui.hide(); }
-    const viewer = st.viewer === me;
-    setKids(ui.body, 
-      h('div', { class: 'role' }, viewer ? 'Tú ves la bomba. Describe lo que ves; tu pareja tiene el manual.' : 'Tú tienes el manual. Pregunta qué ve tu pareja y dile qué hacer.'),
-      h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('span', { class: 'lbl' }, 'Errores ' + '●'.repeat(st.strikes) + '○'.repeat(3 - st.strikes)), h('span', { class: 'lbl' }, st.solved.filter(Boolean).length + '/' + bomb.modules.length + ' módulos')),
+    setKids(ui.body,
+      statusBar(st),
+      h('div', { class: 'role' }, svgIcon(viewer ? 'eye' : 'book', 20), h('span', null, viewer ? 'Ves la bomba. Abre un módulo y descríbelo; tu pareja te dice qué hacer.' : 'Tienes el manual. Tu pareja te describe la bomba; tú le dices qué hacer.')),
       viewer ? bombView(st) : manualView(st));
+  }
+  function statusBar(st) {
+    return h('div', { class: 'bstatus' },
+      h('div', null, h('span', { class: 'lbl' }, 'Errores'), h('div', { class: 'leds', 'aria-label': st.strikes + ' de 3 errores' }, [0, 1, 2].map(i => h('i', { class: i < st.strikes ? 'on' : '' })))),
+      h('div', null, h('span', { class: 'lbl' }, 'Módulos'), h('div', { class: 'steps' }, bomb.modules.map((m, i) => h('i', { class: st.solved[i] ? 'on' : '', title: MODULE_INFO[m.type].name })))));
   }
   function renderRoles(st) {
     lastStatus = 'roles'; ui.hide(); ui.setTimer(LEVELS[st.lv].dur);
     const iSee = st.viewer === me, partner = S.partner?.name || 'tu pareja';
-    setKids(ui.body, 
+    const roleCard = (mine, ic, title, desc, val) => h('button', { class: 'rolecard' + (mine ? ' sel' : ''), 'aria-pressed': String(mine), onclick: () => sync.dispatch({ k: 'role', me: val }) }, svgIcon(ic, 30), h('b', null, title), h('span', null, desc), h('em', null, mine ? 'Tú' : partner));
+    setKids(ui.body,
       h('p', { class: 'eyebrow' }, 'Bomba ' + (st.lv + 1) + ' de ' + LEVELS.length + ' · ' + LEVELS[st.lv].diff),
       h('h2', null, LEVELS[st.lv].name),
-      h('p', { class: 'lead' }, `${bomb.modules.length} ${bomb.modules.length === 1 ? 'módulo' : 'módulos'} y ${Math.round(LEVELS[st.lv].dur / 60 * 10) / 10} minutos. Con 3 errores, explota. Cada error resta 15 segundos.`),
-      h('div', { class: 'panel' }, h('span', { class: 'lbl' }, 'Roles'), h('b', null, iSee ? 'Tú ves la bomba · ' + partner + ' lee el manual' : 'Tú lees el manual · ' + partner + ' ve la bomba'),
-        h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => sync.dispatch({ k: 'role', me: 'bomb' }) }, 'Yo veo la bomba'), h('button', { class: 'btn small', onclick: () => sync.dispatch({ k: 'role', me: 'manual' }) }, 'Yo leo el manual'))),
-      h('p', { class: 'note' }, 'Hablen por llamada o usen el chat de la isla. Quien lee el manual no puede ver la bomba, y quien ve la bomba no tiene el manual.'),
-      h('button', { class: 'btn primary', onclick: () => sync.dispatch({ k: 'start' }) }, '¡Empezar!'));
+      h('div', { class: 'tags' }, bomb.modules.map(m => h('span', { class: 'chip' }, svgIcon(MODULE_INFO[m.type].icon, 16), MODULE_INFO[m.type].name)), h('span', { class: 'chip' }, svgIcon('timer', 16), Math.round(LEVELS[st.lv].dur / 6) / 10 + ' min')),
+      h('p', { class: 'lead' }, 'Elijan quién ve la bomba y quién lee el manual. Toca una tarjeta para cambiar.'),
+      h('div', { class: 'roles' }, roleCard(iSee, 'eye', 'Ve la bomba', 'Abre los módulos, describe lo que ve y toca lo que le digan.', 'bomb'), roleCard(!iSee, 'book', 'Lee el manual', 'Escucha la descripción, busca la regla y dice qué hacer.', 'manual')),
+      h('p', { class: 'note' }, 'Con 3 errores, explota. Cada error resta 15 segundos. Hablen por llamada o usen el chat.'),
+      h('button', { class: 'btn primary block', onclick: () => sync.dispatch({ k: 'start' }) }, svgIcon('play', 18), '¡Empezar!'));
   }
-  function moduleCard(st, i, title, ...kids) {
-    return h('div', { class: 'panel', style: { borderLeft: '6px solid ' + (st.solved[i] ? 'var(--ok)' : 'var(--danger)') } }, h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('b', null, title), h('span', { class: 'chip ' + (st.solved[i] ? 'ok' : 'bad') }, h('i'), st.solved[i] ? 'Desactivado' : 'Activo')), ...(st.solved[i] ? [] : kids));
+  // ---------------- vista de la bomba ----------------
+  function moduleCard(st, i, body) {
+    const m = bomb.modules[i], I = MODULE_INFO[m.type], open = st.focus === i && !st.solved[i];
+    return h('section', { class: 'bmod' + (st.solved[i] ? ' done' : '') + (open ? ' open' : '') + (st.badM === i && st.bad === seen.bad && Date.now() - (local.badAt || 0) < 600 ? ' shake' : '') },
+      h('button', { class: 'bmod-head', 'aria-expanded': String(open), onclick: () => { if (!st.solved[i]) sync.dispatch({ k: 'focus', m: i }); } },
+        h('span', { class: 'bico' }, svgIcon(st.solved[i] ? 'check' : I.icon, 22)), h('b', null, I.name), h('span', { class: 'chip ' + (st.solved[i] ? 'ok' : 'bad') }, h('i'), st.solved[i] ? 'Desactivado' : open ? 'Abierto' : 'Tocar para abrir')),
+      open ? h('div', { class: 'bmod-body' }, h('p', { class: 'say' }, svgIcon('chat', 18), h('span', null, 'Dile a tu pareja ' + I.say)), body()) : null);
   }
-  function keypad(onKey) { return h('div', { class: 'keypad' }, ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'].map(k => h('button', { 'aria-label': k === '⌫' ? 'Borrar' : k === '✓' ? 'Enviar' : k, onclick: () => { sfx.tap(); onKey(k); } }, k))); }
-  function bombView(st) {
+  // Teclado: len = cifras exactas (símbolos) o {min, max} (cálculo, para no delatar cuántas cifras tiene el resultado).
+  function keypad(len, val, set, submit, label) {
+    const min = typeof len === 'number' ? len : len.min, max = typeof len === 'number' ? len : len.max;
     return h('div', { class: 'list' },
-      h('div', { class: 'panel', style: { background: '#2a2a33' } }, h('span', { class: 'lbl' }, 'Número de serie'), h('b', { style: { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '24px', letterSpacing: '.15em' } }, bomb.serial)),
-      bomb.modules.map((m, i) => {
-        if (m.type === 'palancas') return moduleCard(st, i, 'Palancas',
-          h('div', { class: 'row' }, h('span', { style: { width: '30px', height: '30px', borderRadius: '50%', background: COLORS[m.light], boxShadow: '0 0 14px ' + COLORS[m.light] }, 'aria-label': 'Luz ' + m.light }), h('div', { class: 'display', style: { flex: 1 } }, m.code.join(''))),
-          h('div', { class: 'row', style: { flexWrap: 'nowrap', gap: '6px' } }, local.lev[i].map((up, j) => h('button', { class: 'btn', style: { flex: 1, minHeight: '86px', padding: '4px', flexDirection: 'column' }, 'aria-label': `Palanca ${j + 1} ${up ? 'arriba' : 'abajo'}`, onclick: () => { local.lev[i][j] = !local.lev[i][j]; sfx.tick(); render(sync.state); } }, h('span', { style: { fontSize: '26px' } }, up ? '▲' : '▼'), h('small', null, j + 1)))),
-          h('button', { class: 'btn primary', onclick: () => sync.dispatch({ k: 'pal', m: i, pos: local.lev[i] }) }, 'Confirmar palancas'));
-        if (m.type === 'luces') {
-          const grid = h('div', { class: 'keypad' }, Array.from({ length: 9 }, (_, c) => h('button', { 'data-c': c, style: { minHeight: '64px' }, 'aria-label': 'Casilla ' + (c + 1), onclick: () => { sfx.tick(); sync.dispatch({ k: 'luz', m: i, cell: c }); } }, '')));
-          const play = () => { m.seq.forEach((s, k) => { setTimeout(() => { const b = grid.querySelector(`[data-c="${s.cell}"]`); if (!b) return; b.style.background = COLORS[s.color]; sfx.tone?.(); setTimeout(() => { b.style.background = ''; }, 550); }, 300 + k * 800); }); };
-          return moduleCard(st, i, 'Panel de luces', h('p', { class: 'note' }, 'Pulsa "Ver secuencia". Luego presiona las casillas que diga el manual, en orden. Avance: ' + st.prog[i] + '/' + m.seq.length), grid, h('button', { class: 'btn', onclick: play }, 'Ver secuencia'));
-        }
-        if (m.type === 'simbolos') return moduleCard(st, i, 'Símbolos',
-          h('div', { class: 'row', style: { background: m.bg === 'dorado' ? '#c9a24a' : '#a9b2c4', borderRadius: '14px', padding: '10px', justifyContent: 'space-around', color: '#1a1430' } }, m.syms.map(s => svg(SYMBOLS[s]))),
-          h('div', { class: 'display' }, local.code.padEnd(4, '·')),
-          keypad(k => { if (k === '⌫') local.code = local.code.slice(0, -1); else if (k === '✓') { if (local.code.length === 4) { sync.dispatch({ k: 'sim', m: i, code: local.code }); local.code = ''; } } else if (local.code.length < 4) local.code += k; render(sync.state); }));
-        return moduleCard(st, i, 'Cálculo',
-          h('div', { class: 'row', style: { justifyContent: 'center', gap: '18px' } }, shapeSvg(m.shape), h('b', { style: { fontSize: '44px', fontFamily: 'ui-monospace, Menlo, monospace' } }, m.n)),
-          h('div', { class: 'display' }, local.calc || '·'),
-          keypad(k => { if (k === '⌫') local.calc = local.calc.slice(0, -1); else if (k === '✓') { if (local.calc) { sync.dispatch({ k: 'calc', m: i, val: +local.calc }); local.calc = ''; } } else if (local.calc.length < 4) local.calc += k; render(sync.state); }));
-      }));
+      h('div', { class: 'digits', 'aria-label': label + ': ' + (val || 'vacío') }, Array.from({ length: max }, (_, i) => h('span', { class: val[i] != null ? 'f' : '' }, val[i] ?? ''))),
+      h('div', { class: 'keypad' }, ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'].map(k => h('button', {
+        'aria-label': k === '⌫' ? 'Borrar' : k === '✓' ? 'Enviar' : k, class: k === '✓' ? 'go' : '', disabled: k === '✓' && val.length < min,
+        onclick: () => { sfx.tap(); if (k === '⌫') set(val.slice(0, -1)); else if (k === '✓') { if (val.length >= min) submit(val); } else if (val.length < max) set(val + k); }
+      }, k === '⌫' ? svgIcon('backspace', 24) : k === '✓' ? svgIcon('check', 26) : k))));
   }
-  let page = 'intro';
+  function bombView(st) {
+    const digits = bomb.serial.split('').map(ch => h('span', { class: /\d/.test(ch) ? 'd' : '' }, ch));
+    return h('div', { class: 'list' },
+      h('div', { class: 'bcase' }, h('span', { class: 'lbl' }, 'Número de serie'), h('div', { class: 'serial' }, digits), h('span', { class: 'note' }, 'Las cifras están en amarillo.')),
+      bomb.modules.map((m, i) => moduleCard(st, i, () => {
+        if (m.type === 'palancas') return h('div', { class: 'list' },
+          h('div', { class: 'row', style: { flexWrap: 'nowrap', gap: '12px' } },
+            h('div', { class: 'light', style: { '--c': COLORS[m.light] } }, h('i'), h('b', null, 'LUZ ' + COLOR_NAME[m.light])),
+            h('div', { style: { flex: 1, minWidth: 0 } }, h('span', { class: 'lbl' }, 'Código'), h('div', { class: 'digits small' }, m.code.map(d => h('span', { class: 'f' }, d))))),
+          leverRow(local.lev[i], j => { local.lev[i][j] = !local.lev[i][j]; sfx.tick(); render(sync.state); }),
+          h('button', { class: 'btn primary block', onclick: () => sync.dispatch({ k: 'pal', m: i, pos: local.lev[i] }) }, svgIcon('check', 18), 'Confirmar palancas'));
+        if (m.type === 'luces') {
+          const grid = h('div', { class: 'lgrid' }, Array.from({ length: 9 }, (_, c) => h('button', { 'data-c': c, 'aria-label': 'Casilla ' + (c + 1), disabled: !!playing, onclick: e => { sfx.tick(); const b = e.currentTarget; b.classList.add('press'); setTimeout(() => b.classList.remove('press'), 180); sync.dispatch({ k: 'luz', m: i, cell: c }); } }, h('small', null, c + 1), h('b'))));
+          const stepLbl = h('span', { class: 'lbl' }, playing ? '' : 'Pulsa «Ver secuencia» para ver las luces');
+          const play = () => {
+            if (playing) return; playing = true; render(sync.state);
+            const cells = () => [...document.querySelectorAll('.lgrid button')];
+            m.seq.forEach((s, k) => {
+              setTimeout(() => { const b = cells()[s.cell]; if (!b) return; b.style.setProperty('--c', COLORS[s.color]); b.classList.add('lit'); b.querySelector('b').textContent = COLOR_NAME[s.color]; const l = document.querySelector('.lstep'); if (l) l.textContent = `Luz ${k + 1} de ${m.seq.length}: casilla ${s.cell + 1}, ${COLOR_NAME[s.color].toLowerCase()}`; sfx.tick(); }, 400 + k * 1300);
+              setTimeout(() => { const b = cells()[s.cell]; if (!b) return; b.classList.remove('lit'); b.querySelector('b').textContent = ''; }, 400 + k * 1300 + 950);
+            });
+            setTimeout(() => { playing = null; render(sync.state); }, 400 + m.seq.length * 1300);
+          };
+          return h('div', { class: 'list' },
+            h('p', { class: 'lstep' }, playing ? 'Mira las luces…' : `Secuencia de ${m.seq.length} luces. Puedes verla las veces que quieras.`),
+            grid,
+            h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('span', { class: 'lbl' }, 'Presionadas'), h('div', { class: 'steps' }, m.seq.map((_, k) => h('i', { class: k < st.prog[i] ? 'on' : '' })))),
+            h('button', { class: 'btn block', disabled: !!playing, onclick: play }, svgIcon('eye', 18), playing ? 'Mostrando…' : 'Ver secuencia'),
+            h('p', { class: 'note' }, 'Después, presiona las casillas que te diga tu pareja, en orden. Si fallas, el panel vuelve a empezar.'));
+        }
+        if (m.type === 'simbolos') return h('div', { class: 'list' },
+          h('div', { class: 'symbg ' + m.bg }, h('span', { class: 'lbl' }, 'Fondo ' + (m.bg === 'dorado' ? 'DORADO' : 'PLATEADO')), h('div', { class: 'symrow' }, m.syms.map((s, k) => h('div', null, h('small', null, k + 1 + 'º'), sym(s, 40))))),
+          keypad(4, local.code[i] || '', v => { local.code[i] = v; render(sync.state); }, v => { sync.dispatch({ k: 'sim', m: i, code: v }); local.code[i] = ''; }, 'Código de 4 cifras'));
+        return h('div', { class: 'list' },
+          h('div', { class: 'calc' }, h('div', null, shapeSvg(m.shape, 54), h('b', null, m.shape.toUpperCase())), h('strong', null, m.n)),
+          keypad({ min: 1, max: 4 }, local.calc[i] || '', v => { local.calc[i] = v; render(sync.state); }, v => { sync.dispatch({ k: 'calc', m: i, val: +v }); local.calc[i] = ''; }, 'Resultado'));
+      })));
+  }
+  // ---------------- vista del manual ----------------
   function manualView(st) {
-    const tab = (id, l) => h('button', { 'aria-pressed': String(page === id), onclick: () => { page = id; render(sync.state); } }, l);
-    const pages = {
-      intro: h('div', { class: 'doc' }, h('h4', null, 'Manual de desactivación'), h('p', null, 'La bomba tiene uno o varios módulos. Cada módulo se desactiva por separado. Tu pareja ve la bomba; tú no. Pídele que te describa cada módulo con detalle.'), h('p', null, 'Algunas reglas usan el número de serie: está escrito en la carcasa de la bomba. Pídelo al principio.'), h('p', null, 'Tres errores y explota. Cada error también resta 15 segundos.')),
-      palancas: h('div', { class: 'doc' }, h('h4', null, 'Palancas'), h('p', null, 'Hay 5 palancas numeradas del 1 al 5, una luz de color y una pantalla con un código de 3 cifras. Deja las palancas así y pulsa "Confirmar":'),
-        h('table', null, h('tr', null, h('th', null, 'Luz'), h('th', null, 'Posición correcta')),
-          h('tr', null, h('td', null, 'Roja'), h('td', null, 'Arriba solo las palancas cuyo número aparece en el código.')),
-          h('tr', null, h('td', null, 'Verde'), h('td', null, 'Arriba solo las palancas cuyo número NO aparece en el código.')),
-          h('tr', null, h('td', null, 'Azul'), h('td', null, 'Todas arriba menos una: suma las cifras del código y divide entre 5; el residuo es la palanca que va abajo (si el residuo es 0, la 5).')),
-          h('tr', null, h('td', null, 'Amarilla'), h('td', null, 'Cambia todas: las que estén arriba, abajo; las que estén abajo, arriba. Pregunta cómo están antes de mover nada.')))),
-      luces: h('div', { class: 'doc' }, h('h4', null, 'Panel de luces'), h('p', null, 'Es una cuadrícula de 3×3. Al ver la secuencia se encienden varias casillas de colores, una por una. Por cada luz, en el mismo orden, hay que presionar otra casilla:'),
-        h('table', null, h('tr', null, h('th', null, 'Color'), h('th', null, 'Casilla a presionar')),
-          h('tr', null, h('td', null, 'Rojo'), h('td', null, 'La opuesta respecto al centro (esquina contraria; el centro se queda en el centro).')),
-          h('tr', null, h('td', null, 'Azul'), h('td', null, 'La misma casilla.')),
-          h('tr', null, h('td', null, 'Verde'), h('td', null, 'La de abajo. Si ya está en la fila de abajo, la de arriba del todo en esa columna.')),
-          h('tr', null, h('td', null, 'Amarillo'), h('td', null, 'La de la derecha. Si ya está a la derecha, la de la izquierda del todo en esa fila.'))),
-        h('p', null, 'Si se equivocan, el panel vuelve a empezar desde la primera luz.')),
-      simbolos: h('div', { class: 'doc' }, h('h4', null, 'Símbolos'), h('p', null, 'Hay 4 símbolos sobre un fondo dorado o plateado. Escribe el número de cada símbolo, en el mismo orden, y envía las 4 cifras.'),
-        h('div', { class: 'tblwrap' }, h('table', null, h('tr', null, h('th', null, 'Símbolo'), h('th', null, 'Dorado'), h('th', null, 'Plateado')), Object.keys(SYMBOLS).map(s => h('tr', null, h('td', null, svg(SYMBOLS[s], 26)), h('td', null, SYMBOL_VALUES[s][0]), h('td', null, SYMBOL_VALUES[s][1])))))),
-      calculo: h('div', { class: 'doc' }, h('h4', null, 'Cálculo'), h('p', null, 'Hay una figura y un número de dos cifras (N). Calcula y escribe el resultado:'),
-        h('table', null, h('tr', null, h('th', null, 'Figura'), h('th', null, 'Operación')),
-          h('tr', null, h('td', null, 'Triángulo'), h('td', null, 'N × 3, menos la última cifra del número de serie.')),
-          h('tr', null, h('td', null, 'Cuadrado'), h('td', null, 'Invierte las cifras de N (47 → 74) y suma 7.')),
-          h('tr', null, h('td', null, 'Círculo'), h('td', null, 'Suma las dos cifras de N y multiplica por el número de módulos de la bomba.')),
-          h('tr', null, h('td', null, 'Rombo'), h('td', null, '99 menos N, más la primera cifra del número de serie.'))))
-    };
-    return h('div', { class: 'list' }, h('div', { class: 'tabs', role: 'group' }, tab('intro', 'Inicio'), tab('palancas', 'Palancas'), tab('luces', 'Luces'), tab('simbolos', 'Símbolos'), tab('calculo', 'Cálculo')), pages[page]);
+    const types = [...new Set(bomb.modules.map(m => m.type))], cur = bomb.modules[st.focus];
+    const tab = (id, l, ic, solved) => h('button', { 'aria-pressed': String(page === id), onclick: () => { page = id; followFocus = id === cur?.type; render(sync.state); } }, svgIcon(ic, 16), l, solved ? svgIcon('check', 16) : null);
+    return h('div', { class: 'list' },
+      cur && !st.solved[st.focus] ? h('div', { class: 'focusbar' }, svgIcon('eye', 18), h('span', null, 'Tu pareja tiene abierto: ', h('b', null, MODULE_INFO[cur.type].name)), page !== cur.type ? h('button', { class: 'btn small', onclick: () => { page = cur.type; followFocus = true; render(sync.state); } }, 'Ir') : null) : null,
+      h('div', { class: 'tabs', role: 'group', 'aria-label': 'Páginas del manual' }, tab('intro', 'Inicio', 'book'), types.map(t => tab(t, MODULE_INFO[t].name, MODULE_INFO[t].icon, bomb.modules.every((m, i) => m.type !== t || st.solved[i])))),
+      manualPage(page, bomb));
   }
   function showEnd(st) {
     const win = st.status === 'win', L = LEVELS[st.lv], key = st.seed + st.lv;
     let reward = null;
     if (rewarded !== key) { rewarded = key; reward = finishMatch(ctx, { game: 'bomba', level: L.id, win, title: 'Bomba: ' + L.name, detail: win ? st.strikes + ' errores' : 'Explotó', xp: 80 + st.lv * 25, coins: 20 + st.lv * 10, mission: 'bomba', ach: win ? ['artificieros'].concat(st.strikes === 0 ? ['sin-errores'] : []) : [] }); }
     if (!win) sfx.boom();
-    resultCard(ui, { win, title: win ? '¡Bomba desactivada!' : '¡BUM!', lines: [win ? `Con ${st.strikes} ${st.strikes === 1 ? 'error' : 'errores'}.` : 'Se acabó el tiempo o hubo 3 errores.'], reward,
+    resultCard(ui, { win, title: win ? '¡Bomba desactivada!' : '¡BUM!', lines: [win ? `Con ${st.strikes} ${st.strikes === 1 ? 'error' : 'errores'}.` : st.strikes >= 3 ? 'Hubo 3 errores.' : 'Se acabó el tiempo.'], reward,
       onNext: win && st.lv < LEVELS.length - 1 ? () => sync.dispatch({ k: 'next' }) : null, nextLabel: 'Siguiente bomba', onAgain: () => sync.dispatch({ k: 'again' }), onExit: () => ctx.exit() });
   }
   tick = setInterval(() => {
@@ -138,5 +165,6 @@ export function mount(root, ctx) {
     if (left !== null && left <= 10 && left > 0) sfx.tick();
     if (sync.isHost && left !== null && left <= 0) sync.dispatch({ k: 'timeout' });
   }, 1000);
-  return { destroy() { clearInterval(tick); sync.destroy(); ui.destroy(); } };
+  if (DEBUG) window.__bomb = { get st() { return sync.state; }, get bomb() { return bomb; } };
+  return { destroy() { clearInterval(tick); sync.destroy(); ui.destroy(); if (DEBUG) delete window.__bomb; } };
 }

@@ -2,10 +2,22 @@
 import { h, now, code as rcode, setKids } from '../../core/util.js';
 import { sfx } from '../../core/audio.js';
 import { shell, createSync, remaining, resultCard, finishMatch } from '../common.js';
+import { svgIcon } from '../../ui/icons.js';
 import { ROOMS, COLORS, ICONS, makeRoom, normalize } from './rooms.js';
 
 const S_ = (inner, size = 40, color) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', size); s.setAttribute('height', size); s.setAttribute('fill', 'none'); s.setAttribute('stroke', color || 'currentColor'); s.setAttribute('stroke-width', '2'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.innerHTML = inner; return s; };
 const SYM = { luna: '<path d="M16 3a9 9 0 1 0 5 14 7 7 0 0 1-5-14z"/>', nube: '<path d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11-1A4.5 4.5 0 0 0 7 18z"/>', sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>', estrella: '<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.6 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>' };
+const PUZZLE_TEXT = {
+  relojes: { title: 'Caja fuerte', ex: 'di el color del marco y la hora de cada reloj; escribe el código que te dicten.', ar: 'lee el orden de colores de la nota y pregunta qué hora marca cada reloj.' },
+  musica: { title: 'Caja de música', ex: 'describe los dibujos de los botones y tócalos en el orden que te digan.', ar: 'cada frase del diario describe un dibujo; dile el orden.' },
+  libros: { title: 'Candado de letras', ex: 'lee el color y el título de cada libro; escribe la palabra.', ar: 'la foto dice qué colores importan y en qué orden; toma la primera letra de cada título.' },
+  pociones: { title: 'Mesa de mezclas', ex: 'di el color de cada frasco y ajusta los mililitros que te digan.', ar: 'busca cada color en la fórmula y dicta los mililitros.' },
+  glifos: { title: 'Panel de energía', ex: 'describe el símbolo del panel y enciende los interruptores que te digan.', ar: 'busca ese símbolo en la tabla y di qué interruptores van encendidos.' },
+  conteo: { title: 'Puerta del laboratorio', ex: 'cuenta los objetos que te pidan y escribe las tres cifras.', ar: 'la nota dice qué objetos contar y en qué orden.' },
+  mapa: { title: 'El mapa', ex: 'di dónde están el ancla y el barril; cava donde te indiquen.', ar: 'ubica la X respecto al ancla o al barril y guía a tu pareja.' },
+  cifrado: { title: 'Mensaje en clave', ex: 'dicta las letras talladas y escribe la palabra descifrada.', ar: 'la foto dice cuántos lugares retroceder cada letra; descifra con tu pareja.' },
+  faro: { title: 'Señales del faro', ex: 'mira los destellos: di cuáles son cortos y cuáles largos, grupo por grupo.', ar: 'traduce cada grupo con el código del farero y dicta las cifras.' }
+};
 const RIDDLE = { luna: 'lo que cambia de forma cada noche', nube: 'lo que trae la lluvia', sol: 'lo que calienta el día', estrella: 'lo que guía a los marineros' };
 const GLY = { sol: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/>', luna: '<path d="M15 4a8 8 0 1 0 0 16 6 6 0 0 1 0-16z"/>', agua: '<path d="M4 6h16L12 20z"/>', fuego: '<path d="M12 4l8 14H4z"/>', tierra: '<path d="M4 6h16L12 20z"/><path d="M7 11h10"/>', aire: '<path d="M12 4l8 14H4z"/><path d="M7 13h10"/>', sal: '<circle cx="12" cy="12" r="7"/><path d="M5 12h14"/>', plomo: '<path d="M12 3v18M7 8h10"/><path d="M12 21a3 3 0 0 0 3-3"/>' };
 const ICO = { frasco_roto: ['<path d="M9 3h6M10 3v5l-5 10a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-10V3"/><path d="M9 13l3 2-2 3"/>', '#d9c6ff'], tubo_azul: ['<rect x="9" y="3" width="6" height="18" rx="3"/><path d="M9 13h6"/>', '#4aa8ff'], tubo_rojo: ['<rect x="9" y="3" width="6" height="18" rx="3"/><path d="M9 13h6"/>', '#ff5470'], libro_abierto: ['<path d="M3 6c3-1 6-1 9 1 3-2 6-2 9-1v12c-3-1-6-1-9 1-3-2-6-2-9-1z"/><path d="M12 7v12"/>', '#e8d3a2'], vela: ['<rect x="9" y="9" width="6" height="12"/><path d="M12 3c2 2 1 4 0 5-1-1-2-3 0-5z"/>', '#ffcf5c'], llave: ['<circle cx="7" cy="12" r="4"/><path d="M11 12h10M17 12v4M20 12v3"/>', '#c9c4d6'] };
@@ -43,11 +55,11 @@ export function mount(root, ctx) {
     if (st.phase === 'roles') return renderRoles(st);
     if (st.status !== lastStatus) { lastStatus = st.status; if (st.phase === 'end') showEnd(st); else ui.hide(); }
     if (st.phase === 'end') return;
-    const isEx = st.explorer === me, p = room.puzzles[st.step];
+    const isEx = st.explorer === me, p = room.puzzles[st.step], T = PUZZLE_TEXT[p.kind];
     setKids(ui.body, 
-      h('div', { class: 'role' }, isEx ? 'Exploras la habitación. Cuéntale a tu pareja lo que ves.' : 'Tienes los documentos. Pregunta qué hay en la habitación.'),
-      h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('span', { class: 'lbl' }, 'Cerradura ' + (st.step + 1) + ' de 3'),
-        st.hints[st.step] ? null : h('button', { class: 'btn small', onclick: () => sync.dispatch({ k: 'hint' }) }, 'Pedir pista (−1 min)')),
+      h('div', { class: 'bstatus' }, h('div', null, h('span', { class: 'lbl' }, 'Cerraduras'), h('div', { class: 'steps' }, [0, 1, 2].map(i => h('i', { class: i < st.step ? 'on' : '' })))), h('div', { style: { textAlign: 'right' } }, h('span', { class: 'lbl' }, 'Ahora'), h('b', null, T.title))),
+      h('div', { class: 'role' }, svgIcon(isEx ? 'eye' : 'book', 20), h('span', null, isEx ? 'Exploras: ' + T.ex : 'Archivas: ' + T.ar)),
+      st.hints[st.step] ? null : h('button', { class: 'btn small', onclick: () => sync.dispatch({ k: 'hint' }) }, svgIcon('bulb', 18), 'Pedir pista (−1 min)'),
       st.hints[st.step] ? h('p', { class: 'panel note' }, 'Pista: ' + p.hint) : null,
       isEx ? explorerView(p, st) : archiveView(p, st));
   }
@@ -86,7 +98,7 @@ export function mount(root, ctx) {
       case 'conteo': return h('div', { class: 'list' }, h('p', { class: 'note' }, 'Una repisa llena de cosas. La puerta pide 3 cifras.'),
         h('div', { class: 'panel', style: { gridTemplateColumns: 'repeat(6, 1fr)', justifyItems: 'center' } }, p.items.map(it => S_(ICO[it][0], 34, ICO[it][1]))), keypad(3, send));
       case 'mapa': return h('div', { class: 'list' }, h('p', { class: 'note' }, 'El piso de arena tiene 5×5 baldosas. En dos hay un ancla y un barril. Toca la baldosa donde hay que cavar.'),
-        h('div', { class: 'keypad', style: { gridTemplateColumns: 'repeat(5, 1fr)' } }, [...Array(25).keys()].map(i => h('button', { style: { minHeight: '54px', background: local.tile === i ? 'var(--gold)' : '#c9a86a', color: '#1a1430', borderColor: '#8a6a3a' }, 'aria-label': 'Baldosa', onclick: () => { local.tile = i; render(sync.state); } }, i === p.anchor ? '⚓' : i === p.barrel ? '🛢' : ''))),
+        h('div', { class: 'keypad', style: { gridTemplateColumns: 'repeat(5, 1fr)' } }, [...Array(25).keys()].map(i => h('button', { style: { minHeight: '54px', background: local.tile === i ? 'var(--gold)' : '#c9a86a', color: '#1a1430', borderColor: '#8a6a3a' }, 'aria-label': 'Baldosa', onclick: () => { local.tile = i; render(sync.state); } }, i === p.anchor ? svgIcon('anchor', 22) : i === p.barrel ? svgIcon('barrel', 22) : ''))),
         h('button', { class: 'btn primary', disabled: local.tile == null, onclick: () => send(String(local.tile)) }, 'Cavar aquí'));
       case 'cifrado': return h('div', { class: 'list' }, h('p', { class: 'note' }, 'En la pared hay letras talladas. Parece un mensaje en clave; escribe la palabra descifrada.'),
         h('div', { class: 'display', style: { color: '#e8d3a2', background: '#2a2140', fontFamily: 'Georgia, serif' } }, p.enc), textLock(5, 'Palabra descifrada'));
@@ -107,7 +119,7 @@ export function mount(root, ctx) {
       case 'glifos': return doc(h('h4', null, 'Tabla de energía'), h('p', null, 'Cada símbolo enciende ciertos interruptores:'), h('div', { class: 'tblwrap' }, h('table', null, h('tr', null, h('th', null, 'Símbolo'), ...'ABCD'.split('').map(l => h('th', null, l))), Object.entries(p.table).map(([g, pat]) => h('tr', null, h('td', null, S_(GLY[g], 30, '#5b3a22')), ...pat.map(v => h('td', null, v ? 'Encendido' : '—')))))));
       case 'conteo': return doc(h('h4', null, 'Nota en la puerta'), h('p', null, '«El código es: primero cuántos ' + ICONS[p.ask[0]] + ', luego cuántos ' + ICONS[p.ask[1]] + ' y al final cuántos ' + ICONS[p.ask[2]] + ' hay en la repisa.»'));
       case 'mapa': return doc(h('h4', null, 'Mapa del farero'), h('p', null, 'La X marca dónde enterró la llave. Quien explora ve el ancla y el barril, pero no la X.'),
-        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' } }, [...Array(25).keys()].map(i => h('div', { style: { aspectRatio: '1', background: '#e2cfa0', borderRadius: '4px', display: 'grid', placeItems: 'center', fontWeight: 900, color: '#a3201a' } }, i === p.anchor ? '⚓' : i === p.barrel ? '🛢' : i === p.x ? '✕' : ''))));
+        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' } }, [...Array(25).keys()].map(i => h('div', { style: { aspectRatio: '1', background: '#e2cfa0', borderRadius: '4px', display: 'grid', placeItems: 'center', fontWeight: 900, color: '#a3201a' } }, i === p.anchor ? svgIcon('anchor', 20) : i === p.barrel ? svgIcon('barrel', 20) : i === p.x ? '✕' : ''))));
       case 'cifrado': return doc(h('h4', null, 'Fotografía y nota'), h('p', null, h('i', null, 'Al reverso de la foto: «Recuerdo del día ' + p.shift + ' de marzo».')), h('p', null, '«Para leer mis mensajes, retrocede cada letra tantos lugares en el abecedario como el día de esta foto. Después de la A sigue la Z.»'), h('p', { class: 'mono' }, 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'));
       case 'faro': return doc(h('h4', null, 'Código del farero'), h('p', null, '· destello corto · – destello largo'), h('div', { class: 'tblwrap' }, h('table', null, h('tr', null, h('th', null, 'Señal'), h('th', null, 'Cifra')), p.book.map((sig, d) => h('tr', null, h('td', { class: 'mono', style: { fontSize: '20px' } }, sig), h('td', null, d))))));
     }

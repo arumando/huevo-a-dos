@@ -10,10 +10,11 @@ const path = require('path'); const serve = require('./serve'); const startBroke
     const over = [];
     const check = async label => { const o = await p.evaluate(() => { const w = innerWidth; return [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > w + 1 || r.left < -1) && !el.closest('.scen,.tabs,.tblwrap,.sheet-wrap,canvas'); }).length; }); if (o) over.push(label + ':' + o); };
     await check('plaza'); await p.screenshot({ path: process.env.SHOTS + `/s_${name.replace(/ /g, '_')}_plaza.png` });
-    await p.evaluate(() => window.__app.world('huevo')); await p.waitForTimeout(400); await check('mundo');
-    await p.evaluate(() => window.__app.launch('huevo', { level: 'acantilado-1' }, { local: true })); await p.waitForTimeout(1500); await check('juego'); await p.screenshot({ path: process.env.SHOTS + `/s_${name.replace(/ /g, '_')}_juego.png` });
+    for (const w of ['huevo', 'escape', 'bomba', 'detective', 'aventura', 'mini']) { await p.evaluate(id => window.__app.world(id), w); await p.waitForTimeout(350); await check('mundo ' + w); }
+    await p.evaluate(() => window.__app.worlds()); await p.waitForTimeout(350); await check('mundos');
+    await p.evaluate(() => window.__app.launch('huevo', { level: 'acantilado-1' }, { local: true })); await p.waitForTimeout(1500); { const x = await p.$('.sheet [aria-label="Cerrar"]'); if (x) await x.click(); } await check('juego'); await p.screenshot({ path: process.env.SHOTS + `/s_${name.replace(/ /g, '_')}_juego.png` });
     await p.evaluate(() => window.__app.room.endSession()); await p.waitForTimeout(300);
-    await p.evaluate(() => window.__app.launch('detective', { level: 'c2' }, { local: true })); await p.waitForTimeout(800); await p.click('text=Mi expediente'); await check('detectives');
+    await p.evaluate(() => window.__app.launch('detective', { level: 'c2' }, { local: true })); await p.waitForTimeout(800); { const x = await p.$('.sheet [aria-label="Cerrar"]'); if (x) await x.click(); } await p.click('text=Mi expediente'); await check('detectives');
     await p.evaluate(() => window.__app.room.endSession());
     console.log(name.padEnd(22), d.viewport.width + '×' + d.viewport.height, over.length ? 'DESBORDE ' + over.join(' ') : 'sin desbordes');
     await ctx.close();

@@ -26,6 +26,13 @@ export const SYMBOLS = {
 // Tabla del manual: valor de cada símbolo según el color del módulo.
 export const SYMBOL_VALUES = { luna: [3, 8], estrella: [7, 1], ola: [0, 5], ojo: [9, 2], rayo: [4, 6], hoja: [1, 9], llave: [6, 0], corona: [2, 7], ancla: [8, 3], espiral: [5, 4], gota: [7, 6], flecha: [0, 1] };
 export const SHAPES = ['triángulo', 'cuadrado', 'círculo', 'rombo'];
+export const SYMBOL_NAMES = { luna: 'Luna', estrella: 'Estrella', ola: 'Olas', ojo: 'Ojo', rayo: 'Rayo', hoja: 'Hoja', llave: 'Llave', corona: 'Corona', ancla: 'Ancla', espiral: 'Espiral', gota: 'Gota', flecha: 'Flecha' };
+export const MODULE_INFO = {
+  palancas: { name: 'Palancas', icon: 'flag', say: 'el color de la luz, las tres cifras del código y cómo están ahora las palancas (arriba o abajo).' },
+  luces: { name: 'Panel de luces', icon: 'bulb', say: 'en orden, el número de casilla (1 a 9) y el color de cada luz que se enciende.' },
+  simbolos: { name: 'Símbolos', icon: 'star', say: 'el color del fondo (dorado o plateado) y cómo es cada símbolo, de izquierda a derecha.' },
+  calculo: { name: 'Cálculo', icon: 'dice', say: 'la figura, el número grande y las cifras del número de serie.' }
+};
 
 export function makeBomb(seed, lvIndex) {
   const L = LEVELS[lvIndex], r = rng(seed + ':' + lvIndex), A = 'ABCDEFGHJKLMNPQRSTUVWXZ';

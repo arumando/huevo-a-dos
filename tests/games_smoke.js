@@ -13,21 +13,22 @@ const SHOTS = process.env.SHOTS;
     await B.waitForSelector('text=Unirme', { timeout: 8000 }); await B.click('text=Unirme');
     await A.waitForSelector('.game-root', { timeout: 8000 }); await B.waitForSelector('.game-root', { timeout: 8000 });
     await A.waitForTimeout(1200);
+    for (const P of [A, B]) { const x = await P.$('.sheet [aria-label="Cerrar"]'); if (x) await x.click(); } // instrucciones de la primera vez
   };
   const close = async () => { await A.evaluate(() => window.__app.room.endSession()); await A.waitForTimeout(600); const back = await B.evaluate(() => !document.querySelector('.game-root')); return back; };
   const text = async (P) => (await P.textContent('.game-root')).replace(/\s+/g, ' ').slice(0, 160);
   const check = async (name, fn) => { const before = errs.length; try { const info = await fn(); results.push([name, errs.length === before ? 'ok' : 'errores', info || '']); } catch (e) { results.push([name, 'FALLÓ', e.message.split('\n')[0]]); } };
 
-  await check('bomba', async () => { await open('bomba', { level: 'b2' }); await A.click('text=Yo veo la bomba'); await A.click('text=¡Empezar!'); await A.waitForTimeout(900);
-    const a = await A.isVisible('text=Número de serie'), m = await B.isVisible('text=Manual de desactivación'); if (SHOTS) { await A.screenshot({ path: SHOTS + '/g_bomba_a.png' }); await B.screenshot({ path: SHOTS + '/g_bomba_b.png' }); }
+  await check('bomba', async () => { await open('bomba', { level: 'b2' }); await A.click('.rolecard:has-text("Ve la bomba")'); await A.click('text=¡Empezar!'); await A.waitForTimeout(900);
+    const a = await A.isVisible('text=Número de serie'), m = await B.isVisible('text=Tu pareja tiene abierto'); if (SHOTS) { await A.screenshot({ path: SHOTS + '/g_bomba_a.png' }); await B.screenshot({ path: SHOTS + '/g_bomba_b.png' }); }
     // A confirma palancas con la posición inicial (probablemente error): debe contar un error en ambos
     await A.click('text=Confirmar palancas'); await A.waitForTimeout(700);
-    const s = await B.evaluate(() => document.querySelector('.game-root').textContent.includes('●')); return `bomba visible A:${a} manual B:${m} error sincronizado:${s} vuelta:${await close()}`; });
+    const s = (await B.$$('.leds i.on')).length === 1 || (await B.$$('.bmod.done')).length > 0; return `bomba visible A:${a} manual B:${m} error sincronizado:${s} vuelta:${await close()}`; });
   await check('escape', async () => { await open('escape', { level: 'e1' }); await B.click('text=Yo exploro'); await A.click('text=¡Entrar!'); await A.waitForTimeout(900);
     if (SHOTS) { await A.screenshot({ path: SHOTS + '/g_escape_a.png' }); await B.screenshot({ path: SHOTS + '/g_escape_b.png' }); }
     // el invitado explora: resolvemos la caja fuerte con la respuesta real (calculada con la misma semilla)
     const ans = await A.evaluate(async () => { const m = await import('/js/games/escape/rooms.js'); const st = window.__app.room.session; return null; });
-    return `A ve documentos:${await A.isVisible('text=Nota del relojero')} B ve relojes:${await B.isVisible('text=Cerradura 1 de 3')} vuelta:${await close()}`; });
+    return `A ve documentos:${await A.isVisible('text=Nota del relojero')} B ve relojes:${await B.isVisible('text=Caja fuerte')} vuelta:${await close()}`; });
   await check('detective', async () => { await open('detective', { level: 'c1' }); await A.click('text=Mi expediente'); await B.click('text=Mi expediente'); await A.waitForTimeout(400);
     const a = await A.isVisible('text=Declaración de la abuela'), bb = await B.isVisible('text=Interrogatorio a Lucía'), cross = await B.isVisible('text=Declaración de la abuela');
     await A.click('text=Pizarra'); await B.click('text=Pizarra');

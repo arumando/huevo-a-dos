@@ -10,7 +10,7 @@ export class Room extends Emitter {
     link.on('status', () => this.emit('status'));
     link.onMsg('chat', (d, from) => { if (d && typeof d.text === 'string') this.emit('chat', { from: this._pidOf(from), text: d.text.slice(0, 200), at: Date.now() }); });
     link.onMsg('emote', (d, from) => { if (d && typeof d.k === 'string') this.emit('emote', { from: this._pidOf(from), k: d.k }); });
-    link.onMsg('hubpos', (d, from) => { if (d && Number.isFinite(d.x) && Number.isFinite(d.y)) this.emit('hubpos', { from: this._pidOf(from), sid: from, x: d.x, y: d.y, tx: d.tx, ty: d.ty }); });
+    link.onMsg('hubpos', (d, from) => { if (d && Number.isFinite(d.x) && Number.isFinite(d.y)) this.emit('hubpos', { from: this._pidOf(from), sid: from, x: d.x, y: d.y, tx: Number.isFinite(d.tx) ? d.tx : d.x, ty: Number.isFinite(d.ty) ? d.ty : d.y, n: d.n === 1 }); });
     link.onMsg('inv', (d, from) => this._onInvite(d, from));
     link.onMsg('inv-ok', (d, from) => this._onAccept(d, from));
     link.onMsg('inv-no', (d, from) => { if (this.outgoing && d?.s === this.outgoing.s) { this.outgoing = null; this.emit('declined'); } });
@@ -52,12 +52,15 @@ export class Room extends Emitter {
     if (this.session && this.session.online && !t) this._partnerLeftGame(true);
     // La pareja recargó la página: sigue en la sala con otra sesión, pero ya no está en esta partida.
     else if (this.session && this.session.online && this.session.peerSid && !this.link.peers.has(this.session.peerSid)) this._partnerLeftGame(true);
-    this.emit('players');
+    // Solo avisamos si cambió algo visible de la pareja (no en cada latido de presencia):
+    // así las pantallas no se reconstruyen cada pocos segundos mientras alguien toca un botón.
+    const p = this.partner(), sig = p ? [p.pid, p.name, p.avatar.body, p.avatar.belly, p.avatar.hat, p.avatar.eyes, p.avatar.trail, p.lvl, p.where].join('|') : '';
+    if (sig !== this._sig) { this._sig = sig; this.emit('players'); }
   }
 
   chat(text) { text = String(text).trim().slice(0, 200); if (!text) return; this.link.send('chat', { text }); this.emit('chat', { from: this.store.profile.pid, text, at: Date.now(), mine: true }); }
   emote(k) { this.link.send('emote', { k }); this.emit('emote', { from: this.store.profile.pid, k, mine: true }); }
-  hubMove(x, y, tx, ty) { this.link.send('hubpos', { x, y, tx, ty }, { fast: true }); }
+  hubMove(x, y, tx, ty) { const r = v => Math.round(v * 1000) / 1000; this.link.send('hubpos', { x: r(x), y: r(y), tx: r(tx), ty: r(ty), n: 1 }, { fast: true }); }
 
   // ---------- invitaciones ----------
   invite(game, opts = {}) {

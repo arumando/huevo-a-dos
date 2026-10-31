@@ -5,6 +5,9 @@ import { LEVELS, levelById, SCENARIOS } from './levels.js';
 import { createRemoteBird, acceptInput, followRemote, createSnapBuffer, pushSnap, sample, r1 } from './sync.js';
 import { h, now, clamp, fmtTime, DEBUG, setKids } from '../../core/util.js';
 import { sfx, unlock } from '../../core/audio.js';
+import { svgIcon } from '../../ui/icons.js';
+import { celebrate } from '../../ui/fx.js';
+import { helpContent } from '../../ui/worlds.js';
 
 const SENS = 1.15, TEAL = { body: '#3cc9b5', belly: '#b5f0e6', hat: 'ninguno', eyes: 'normal' };
 
@@ -22,11 +25,13 @@ export function mount(root, ctx) {
   const hAlt = h('span', null, '0 m'), hDeaths = h('span', null, '0'), hTime = h('span', null, '0:00'), pill = h('div', { class: 'pill', hidden: isLocal });
   const banT = h('b'), banS = h('span'), banner = h('div', { class: 'hv-banner', hidden: true }, banT, banS);
   const overlay = h('div', { class: 'overlay', hidden: true });
-  const btnHeart = h('button', { class: 'fab-heart', hidden: isLocal, 'aria-label': 'Mandar un corazón', onclick: () => { unlock(); heartFx(myBird()); session.send('heart', {}); ctx.progress.stat('hearts', 1); } }, '♥');
+  const btnHeart = h('button', { class: 'fab-heart', hidden: isLocal, 'aria-label': 'Mandar un corazón', onclick: () => { unlock(); heartFx(myBird()); session.send('heart', {}); ctx.progress.stat('hearts', 1); } }, svgIcon('heart', 30));
+  const openHelp = () => ctx.ui.sheet('Cómo se juega: Huevo a Dos', () => helpContent('huevo'), { ephemeral: true });
   const hud = h('div', { class: 'hv-hud' },
     h('div', { class: 'hud-row' },
       stat('Altura', hAlt), stat('Rotos', hDeaths), stat('Tiempo', hTime),
-      h('button', { class: 'hud-btn', 'aria-label': 'Menú', onclick: openMenu }, '☰')),
+      h('button', { class: 'hud-btn', 'aria-label': 'Cómo se juega', onclick: () => openHelp() }, svgIcon('help')),
+      h('button', { class: 'hud-btn', 'aria-label': 'Pausa y menú', onclick: openMenu }, svgIcon('pause'))),
     pill);
   root.append(h('div', { class: 'hv-root' }, cv, hud, btnHeart, banner, overlay));
   function stat(l, v) { return h('div', { class: 'stat' }, h('span', { class: 'lbl' }, l), v); }
@@ -172,7 +177,7 @@ export function mount(root, ctx) {
   function medalsFor() { const par = lvDef.par || 300; return 1 + (w.deaths <= 1 ? 1 : 0) + (w.time <= par ? 1 : 0); }
   let rewarded = '';
   function winFx() {
-    sfx.win(); w.st = 'win';
+    sfx.win(); celebrate('big'); w.st = 'win';
     for (let i = 0; i < 24; i++) parts.push({ k: 'heart', x: 120 + Math.random() * 120, y: w.egg.y + Math.random() * 40, vx: (Math.random() - .5) * 120, vy: 60 + Math.random() * 120, life: 2 + Math.random() });
     const key = session.id + lvDef.id + w.rs;
     let gained = { xp: 0, coins: 0 };
@@ -220,7 +225,8 @@ export function mount(root, ctx) {
   function openMenu() {
     paused = isLocal;
     setOverlay(h('h2', null, 'Pausa'), h('p', { class: 'note' }, lvDef.name + (mode === 'extremo' ? ' · Eggstremo' : ' · Normal') + (isLocal ? '' : ' · El juego sigue corriendo para tu pareja.')),
-      h('button', { class: 'btn primary', onclick: hideOverlay }, 'Seguir jugando'),
+      h('button', { class: 'btn primary', onclick: hideOverlay }, svgIcon('play', 18), 'Seguir jugando'),
+      h('button', { class: 'btn', onclick: () => { hideOverlay(); openHelp(); } }, svgIcon('help', 18), 'Cómo se juega'),
       h('button', { class: 'btn', onclick: () => { hideOverlay(); if (isGuest) { session.send('req', { k: 'restart' }); ctx.ui.toast('Le pediste a tu pareja reiniciar el nivel'); } else restartLevel(); } }, isGuest ? 'Pedir reiniciar el nivel' : 'Reiniciar el nivel'),
       h('button', { class: 'btn ghost', onclick: () => ctx.exit() }, 'Salir al mundo'));
   }
@@ -262,6 +268,7 @@ export function mount(root, ctx) {
     R.draw(view(), t);
     uiT -= dt; if (uiT <= 0) { uiT = 0.2; updateHud(); }
   }
+  if (!ctx.store.profile.seenHelp?.huevo) { openHelp(); ctx.store.updateProfile(p => { p.seenHelp = { ...(p.seenHelp || {}), huevo: 1 }; }); }
   if (!isGuest) showBanner(lvDef.name, isLocal ? 'Un dedo de cada lado: el izquierdo mueve un pájaro y el derecho al otro' : 'Arrastra el dedo en cualquier parte para mover tu pájaro', 2800);
   if (isHost) sendFull();
   const onHide = () => { if (!isGuest && w.st === 'play') saveLive(); }; addEventListener('pagehide', onHide);

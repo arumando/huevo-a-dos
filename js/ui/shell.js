@@ -1,49 +1,74 @@
-// Pantallas, hojas inferiores, avisos e íconos compartidos por toda la interfaz.
+// Pantallas, hojas inferiores, avisos, íconos y ajuste al teclado del teléfono.
 import { h, $, setKids } from '../core/util.js';
 import { sfx, unlock } from '../core/audio.js';
+import { svgIcon } from './icons.js';
 
-const ICONS = {
-  worlds: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
-  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
-  bird: '<circle cx="11" cy="12" r="6"/><path d="M17 11l4 1-4 1M8 7l-3-3"/>',
-  trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM6 5H3a3 3 0 0 0 5 3M18 5h3a3 3 0 0 1-5 3M12 13v4M8 20h8"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
-  back: '<path d="M15 5l-7 7 7 7"/>', close: '<path d="M6 6l12 12M18 6L6 18"/>', share: '<path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6"/>',
-  plaza: '<path d="M3 11l9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/>'
-};
-export const icon = (n, label) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = ICONS[n] || ''; return label ? [s, h('span', null, label)] : s; };
+const MAP = { worlds: 'worlds', chat: 'chat', bird: 'bird', trophy: 'trophy', gear: 'gear', back: 'back', close: 'close', share: 'share', plaza: 'plaza' };
+export const icon = (n, label, size = 22) => { const s = svgIcon(MAP[n] || n, size); return label ? [s, h('span', null, label)] : s; };
 
 export const ui = {
   app: null, current: null, sheets: [],
-  init() { this.app = $('#app'); this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' }); this.app.append(this.toasts); document.addEventListener('pointerdown', unlock, { passive: true }); },
+  init() {
+    this.app = $('#app'); this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' }); this.app.append(this.toasts);
+    document.addEventListener('pointerdown', unlock, { passive: true });
+    fitKeyboard();
+  },
   show(el) {
     if (this.current && this.current !== el) { this.current._destroy?.(); this.current.remove(); }
+    // Las hojas de ayuda pertenecen a la pantalla que se deja; las invitaciones se quedan.
+    this.sheets.filter(s => s.ephemeral).forEach(s => s.close());
     const boot = $('#boot'); if (boot) boot.remove();
+    el.classList.add('enter'); setTimeout(() => el.classList.remove('enter'), 300);
     this.current = el; this.app.insertBefore(el, this.toasts); return el;
   },
+  // kind: '' | 'gold' | 'good' | 'bad'
   toast(text, kind = '') {
-    const t = h('div', { class: 'toast ' + kind }, text); this.toasts.append(t);
-    setTimeout(() => t.remove(), kind === 'gold' ? 3600 : 2600);
+    const ic = { gold: 'star', good: 'check', bad: 'close' }[kind];
+    // En un juego van arriba (abajo están los controles), salvo que haya una tarjeta de resultado: entonces abajo.
+    const inGame = this.current?.classList.contains('game-root'), card = !!this.current?.querySelector('.overlay:not([hidden])');
+    this.toasts.classList.toggle('top', !!inGame && !card);
+    const t = h('div', { class: 'toast ' + kind, role: 'status' }, ic ? svgIcon(ic, 18) : null, h('span', null, text)); this.toasts.append(t);
+    setTimeout(() => t.remove(), kind === 'gold' ? 3600 : 2800);
     while (this.toasts.children.length > 3) this.toasts.firstChild.remove();
   },
   sheet(title, build, o = {}) {
     const close = () => { wrap.remove(); this.sheets = this.sheets.filter(s => s !== api); o.onClose?.(); };
-    const body = h('div', { class: 'sheet', role: 'dialog', 'aria-label': title });
+    const body = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title });
     const wrap = h('div', { class: 'sheet-wrap', onclick: e => { if (e.target === wrap && !o.modal) close(); } }, body);
-    const api = { el: body, close, refresh: () => render() };
-    const render = () => setKids(body, h('div', { class: 'grab' }), h('div', { class: 'sheet-head' }, h('h3', null, title), !o.modal && h('button', { class: 'icon-btn', 'aria-label': 'Cerrar', onclick: close }, icon('close'))), ...[].concat(build(api)));
+    const api = { el: body, close, refresh: () => render(), ephemeral: !!o.ephemeral };
+    const render = () => setKids(body, h('div', { class: 'grab' }), h('div', { class: 'sheet-head' }, h('h3', null, title), !o.modal && h('button', { class: 'icon-btn', 'aria-label': 'Cerrar', onclick: close }, svgIcon('close'))), ...[].concat(build(api)));
     render(); this.app.insertBefore(wrap, this.toasts); this.sheets.push(api); sfx.tap();
     return api;
   },
   closeSheets() { [...this.sheets].forEach(s => s.close()); }
 };
 
+// Teclado virtual: en iPhone, Safari desplaza la página al abrirse el teclado y todo "salta".
+// Ajustamos la altura de la app al área visible y devolvemos la página a su sitio; el campo enfocado
+// se centra dentro de su propio contenedor con scroll.
+function fitKeyboard() {
+  const vv = window.visualViewport; if (!vv) return;
+  const top = () => parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0;
+  const upd = () => {
+    const kb = window.innerHeight - vv.height > 120;
+    if (kb) document.documentElement.style.setProperty('--app-h', Math.round(vv.height - top()) + 'px');
+    else document.documentElement.style.removeProperty('--app-h');
+    if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', upd); vv.addEventListener('scroll', upd);
+  document.addEventListener('focusin', e => { if (e.target.matches('input,textarea')) setTimeout(() => { upd(); e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 250); });
+  document.addEventListener('focusout', () => setTimeout(upd, 100));
+}
+
 // Copiar texto con alternativa si el portapapeles no está disponible.
 export function copyText(text, onDone) {
-  const fallback = () => { const ta = h('textarea', { class: 'field', readonly: true }, text); ui.app.append(ta); ta.select(); try { document.execCommand('copy'); onDone?.(true); } catch (e) { onDone?.(false); } ta.remove(); };
+  const fallback = () => { const ta = h('textarea', { class: 'field', readonly: true, style: { position: 'absolute', opacity: '0', pointerEvents: 'none' } }, text); ui.app.append(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove(); onDone?.(ok); };
   try { navigator.clipboard.writeText(text).then(() => onDone?.(true), fallback); } catch (e) { fallback(); }
 }
+// Compartir: hoja nativa del teléfono si existe (iPhone, Android); si no, copiar. Siempre confirma qué pasó.
 export function shareLink(url, text) {
-  if (navigator.share) return navigator.share({ title: 'Isla Nido', text, url }).catch(() => {});
-  copyText(url, ok => ui.toast(ok ? 'Enlace copiado. Pégalo en un mensaje para tu pareja.' : 'No se pudo copiar: ' + url));
+  if (navigator.share) {
+    return navigator.share({ title: 'Isla Nido', text, url }).then(() => ui.toast('Invitación enviada', 'good'), err => { if (err && err.name !== 'AbortError') copyText(url, ok => ui.toast(ok ? 'Enlace copiado: pégalo en un mensaje' : url)); });
+  }
+  copyText(url, ok => ui.toast(ok ? 'Enlace copiado: pégalo en un mensaje para tu pareja' : 'Copia este enlace: ' + url, ok ? 'good' : ''));
 }

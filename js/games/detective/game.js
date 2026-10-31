@@ -2,6 +2,7 @@
 import { h, setKids } from '../../core/util.js';
 import { sfx } from '../../core/audio.js';
 import { shell, createSync, resultCard, finishMatch } from '../common.js';
+import { svgIcon } from '../../ui/icons.js';
 import { CASES } from './cases.js';
 
 const ICON = {
@@ -51,7 +52,7 @@ export function mount(root, ctx) {
     ui.setTitle(C.name);
     if (st.fb > lastFeedback) { lastFeedback = st.fb; sfx.bad(); ctx.ui.toast(`Algo no cuadra: acertaron ${st.feedback} de 3. Les queda ${st.tries} intento.`); }
     if (st.status !== lastStatus) { lastStatus = st.status; if (st.status !== 'play') showEnd(st); else ui.hide(); }
-    const t = (id, l) => h('button', { 'aria-pressed': String(tab === id), onclick: () => { tab = id; render(sync.state); } }, l);
+    const t = (id, l, ic) => h('button', { 'aria-pressed': String(tab === id), onclick: () => { tab = id; render(sync.state); } }, svgIcon(ic, 16), l);
     let content;
     if (tab === 'caso') content = h('div', { class: 'list' }, h('div', { class: 'doc' }, h('h4', null, 'El caso'), h('p', null, C.intro)),
       h('span', { class: 'lbl' }, 'Sospechosos'), C.suspects.map(s => h('div', { class: 'li' }, h('div', { class: 'grow' }, h('b', null, s.name), h('span', { class: 'note' }, s.desc)))),
@@ -70,9 +71,12 @@ export function mount(root, ctx) {
         C.questions.map(q => h('div', { class: 'panel' }, h('b', null, q.text),
           h('div', { class: 'list' }, q.options.map(o => { const label = q.id === 'quien' ? name(C, o) : o, mineSel = mine[q.id] === o, theirSel = theirs[q.id] === o;
             return h('button', { class: 'btn small', style: { justifyContent: 'space-between', borderColor: mineSel ? 'var(--gold)' : '' }, 'aria-pressed': String(mineSel), onclick: () => { sfx.tap(); sync.dispatch({ k: 'pick', q: q.id, v: o }); } }, h('span', null, label), h('span', { class: 'note' }, [mineSel ? 'Tú' : '', theirSel && S.role !== 'local' ? partner : ''].filter(Boolean).join(' · '))); })))),
-        h('button', { class: 'btn primary', disabled: S.role === 'local' ? !C.questions.every(q => mine[q.id]) : !agree, onclick: () => sync.dispatch({ k: 'accuse' }) }, agree || S.role === 'local' ? 'Acusar' : 'Acusar (falta que coincidan)'));
+        h('button', { class: 'btn primary block', disabled: S.role === 'local' ? !C.questions.every(q => mine[q.id]) : !agree, onclick: () => sync.dispatch({ k: 'accuse' }) }, svgIcon('search', 18), agree || S.role === 'local' ? 'Acusar' : `Acusar (coinciden ${C.questions.filter(q => mine[q.id] && mine[q.id] === theirs[q.id]).length} de 3)`));
     }
-    setKids(ui.body, h('div', { class: 'tabs', role: 'group' }, t('caso', 'El caso'), t('exp', 'Mi expediente'), t('pizarra', 'Pizarra')), content);
+    const mine = st.sel[me] || {}, theirs = st.sel[me === 'host' ? 'guest' : 'host'] || {}, match = C.questions.filter(q => mine[q.id] && mine[q.id] === theirs[q.id]).length;
+    setKids(ui.body,
+      h('div', { class: 'role' }, svgIcon('search', 20), h('span', null, S.role === 'local' ? 'Tienen los dos expedientes. Léanlos y decidan juntos.' : `Tienes el expediente ${myFile() === 'A' ? '1' : '2'}. Tu pareja tiene el otro: compártanse lo importante.`)),
+      h('div', { class: 'tabs', role: 'group' }, t('caso', 'El caso', 'book'), t('exp', 'Mi expediente', 'search'), t('pizarra', S.role === 'local' ? 'Pizarra' : `Pizarra · ${match}/3`, 'check')), content);
   }
   function showEnd(st) {
     const C = CASES[st.idx], win = st.status === 'win', key = st.idx + ':' + st.tries;

@@ -3,6 +3,7 @@ import { h } from '../core/util.js';
 import { ui, icon, copyText } from './shell.js';
 import { setSound, sfx } from '../core/audio.js';
 import { COLORS, HATS, EYES, TRAILS, avatarCanvas } from './avatar.js';
+import { svgIcon } from './icons.js';
 import { ACHIEVEMENTS } from '../core/progress.js';
 import { levelOf } from '../net/room.js';
 
@@ -31,7 +32,7 @@ export function openChat(app) {
     return [list,
       h('div', { class: 'quick' }, QUICK.map(q => h('button', { disabled: !p, onclick: () => app.room.chat(q) }, q))),
       h('div', { class: 'row' }, ['corazon', 'beso', 'risa', 'hola'].map(k => h('button', { class: 'btn small', disabled: !p, onclick: () => { app.room.emote(k); if (k === 'corazon') app.progress.stat('hearts', 1); } }, { corazon: '♥', beso: '😘', risa: 'Jaja', hola: 'Hola' }[k]))),
-      h('div', { class: 'row' }, input, h('button', { class: 'btn primary small', style: { flex: '0 0 auto' }, disabled: !p, onclick: send }, 'Enviar'))];
+      h('div', { class: 'row' }, input, h('button', { class: 'btn primary small', style: { flex: '0 0 auto' }, disabled: !p, onclick: send, 'aria-label': 'Enviar' }, svgIcon('send', 20)))];
   }, { onClose: () => { chatState.open = null; } });
   chatState.open = s;
 }
@@ -65,13 +66,13 @@ export function openProgress(app) {
   let tab = 'mis';
   const st = app.store, pr = app.progress;
   const s = ui.sheet('Logros y progreso', () => {
-    const t = (id, l) => h('button', { 'aria-pressed': String(tab === id), onclick: () => { tab = id; s.refresh(); } }, l);
+    const t = (id, l, ic) => h('button', { 'aria-pressed': String(tab === id), onclick: () => { tab = id; s.refresh(); } }, ic ? svgIcon(ic, 16) : null, l);
     let content;
     if (tab === 'mis') content = h('div', { class: 'list' }, pr.activeMissions().map(m => h('div', { class: 'li' + (m.claimed ? ' off' : '') },
       h('div', { class: 'grow' }, h('b', null, m.text), h('span', { class: 'note' }, `+${m.xp} XP · +${m.coins} monedas · cada quien`), h('div', { class: 'bar' }, h('i', { style: { width: Math.round(100 * m.progress / m.goal) + '%' } }))),
       m.claimed ? h('span', { class: 'note' }, 'Reclamada') : h('button', { class: 'btn small primary', disabled: m.progress < m.goal, onclick: () => { pr.claim(m); sfx.coin(); s.refresh(); } }, m.progress >= m.goal ? 'Reclamar' : m.progress + '/' + m.goal))),
       h('p', { class: 'note' }, 'Las misiones cambian cada semana. Las cumplen juntos.'));
-    else if (tab === 'ach') content = h('div', { class: 'list' }, ACHIEVEMENTS.map(a => { const got = st.shared.ach?.[a.id]; return h('div', { class: 'li' + (got ? '' : ' off') }, h('span', { class: 'ach-ico', 'aria-hidden': 'true' }, got ? '★' : '☆'), h('div', { class: 'grow' }, h('b', null, a.name), h('span', { class: 'note' }, a.desc)), h('span', { class: 'note' }, got ? new Date(got).toLocaleDateString('es') : '+' + a.coins)); }));
+    else if (tab === 'ach') content = h('div', { class: 'list' }, ACHIEVEMENTS.map(a => { const got = st.shared.ach?.[a.id]; return h('div', { class: 'li' + (got ? '' : ' off') }, h('span', { class: 'ach-ico', 'aria-hidden': 'true' }, svgIcon(got ? 'trophy' : 'lock', 20)), h('div', { class: 'grow' }, h('b', null, a.name), h('span', { class: 'note' }, a.desc)), h('span', { class: 'note' }, got ? new Date(got).toLocaleDateString('es') : '+' + a.coins)); }));
     else if (tab === 'stats') {
       const p = app.room.partner(), mine = st.shared.stats?.[st.profile.pid] || {}, theirs = p ? st.shared.stats?.[p.pid] || {} : {};
       const rows = [['Huevos al nido', 'nidos'], ['Huevos rotos', 'eggs'], ['Corazones enviados', 'hearts'], ['Partidas jugadas', 'games'], ['Victorias', 'wins'], ['Minijuegos', 'mini']];
@@ -80,7 +81,7 @@ export function openProgress(app) {
         h('div', { class: 'tblwrap' }, h('table', { class: 'doc', style: { background: 'var(--dusk)', color: 'var(--ink)' } }, h('tr', null, h('th', null, ''), h('th', null, 'Tú'), h('th', null, p ? p.name : 'Pareja')), rows.map(([l, k]) => h('tr', null, h('td', null, l), h('td', null, mine[k] || 0), h('td', null, theirs[k] || 0))))),
         h('p', { class: 'note' }, 'Cada teléfono cuenta lo que vio. Niveles: ' + Object.values(st.shared.huevo?.levels || {}).filter(x => x.done).length + ' completados en Huevo a Dos.'));
     } else content = h('div', { class: 'list' }, (st.shared.history || []).length ? st.shared.history.map(m => h('div', { class: 'li' }, h('div', { class: 'grow' }, h('b', null, m.title), h('span', { class: 'note' }, (m.result === 'win' ? 'Ganaron' : m.result === 'lose' ? 'Perdieron' : m.result || '') + (m.detail ? ' · ' + m.detail : ''))), h('span', { class: 'note' }, new Date(m.at).toLocaleDateString('es', { day: 'numeric', month: 'short' })))) : h('p', { class: 'note' }, 'Aquí aparecerán sus partidas.'));
-    return [h('div', { class: 'tabs', role: 'group' }, t('mis', 'Misiones'), t('ach', 'Logros'), t('stats', 'Estadísticas'), t('hist', 'Historial')), content];
+    return [h('div', { class: 'tabs', role: 'group' }, t('mis', 'Misiones', 'flag'), t('ach', 'Logros', 'trophy'), t('stats', 'Estadísticas', 'star'), t('hist', 'Historial', 'book')), content];
   });
 }
 
@@ -93,10 +94,10 @@ export function openSettings(app) {
     return [
       h('label', { class: 'lbl', for: 'setName' }, 'Tu nombre'),
       h('div', { class: 'row' }, name, h('button', { class: 'btn small', style: { flex: '0 0 auto' }, onclick: () => { const n = name.value.trim(); if (!n) return; st.updateProfile(p => { p.name = n.slice(0, 20); }); app.room.publish(); ui.toast('Nombre guardado'); } }, 'Guardar')),
-      h('button', { class: 'btn', onclick: () => { const v = !(st.profile.settings?.sound !== false); st.updateProfile(p => { p.settings = { ...(p.settings || {}), sound: v }; }); setSound(v); s.refresh(); } }, 'Sonido: ' + (st.profile.settings?.sound !== false ? 'sí' : 'no')),
+      h('button', { class: 'btn', onclick: () => { const v = !(st.profile.settings?.sound !== false); st.updateProfile(p => { p.settings = { ...(p.settings || {}), sound: v }; }); setSound(v); s.refresh(); } }, svgIcon(st.profile.settings?.sound !== false ? 'sound' : 'mute', 20), 'Sonido: ' + (st.profile.settings?.sound !== false ? 'activado' : 'apagado')),
       h('div', { class: 'panel' }, h('span', { class: 'lbl' }, 'Nuestra sala'), h('b', { style: { fontSize: '22px', letterSpacing: '.12em' } }, app.room.code),
         h('p', { class: 'note' }, 'Quien abra el enlace entra a esta sala. Guárdalo: es la puerta de su isla.'),
-        h('div', { class: 'row' }, h('button', { class: 'btn small coral', onclick: () => app.share() }, icon('share'), 'Mandar enlace'), h('button', { class: 'btn small', onclick: () => copyText(app.inviteUrl(), ok => ui.toast(ok ? 'Enlace copiado' : app.inviteUrl())) }, 'Copiar enlace'))),
+        h('div', { class: 'row' }, h('button', { class: 'btn small coral', onclick: () => app.share() }, icon('share'), 'Mandar enlace'), h('button', { class: 'btn small', onclick: () => copyText(app.inviteUrl(), ok => ui.toast(ok ? 'Enlace copiado' : app.inviteUrl(), ok ? 'good' : '')) }, svgIcon('copy', 18), 'Copiar enlace'))),
       h('div', { class: 'panel' }, h('span', { class: 'lbl' }, 'Conexión'), h('p', { class: 'note' }, (link.connected ? 'Conectado al servidor' : 'Sin conexión al servidor') + ' · ' + (link.via === 'p2p' ? 'canal directo con tu pareja activo' : 'mensajes por el servidor') + (app.room.partner() && link.rtt(app.room.partner().sid) ? ' · ' + Math.round(link.rtt(app.room.partner().sid)) + ' ms' : ''))),
       h('div', { class: 'panel' }, h('span', { class: 'lbl' }, 'Respaldo del progreso'),
         h('p', { class: 'note' }, 'El progreso se guarda en los dos teléfonos y en el servidor. Si cambias de teléfono, copia este código y pégalo en el nuevo.'),

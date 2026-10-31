@@ -4,6 +4,7 @@ import { h, setKids } from '../../core/util.js';
 import { sfx } from '../../core/audio.js';
 import { shell, createSync, resultCard, finishMatch } from '../common.js';
 import { avatarCanvas } from '../../ui/avatar.js';
+import { svgIcon } from '../../ui/icons.js';
 import { MAPS, initState, move, won, gateOpen } from './maps.js';
 
 const TEAL = { body: '#3cc9b5', belly: '#b5f0e6' }, CORAL = { body: '#ff7a59', belly: '#ffc2ad' };
@@ -50,10 +51,10 @@ export function mount(root, ctx) {
     else if (ch === 'u') { bg = av[1].body; txt = '2'; }
     else if (ch === 'p' || ch === 'q') { const on = s.b.some(b => b[0] === r && b[1] === c) || s.p.some(q => q[0] === r && q[1] === c); bg = on ? '#ffcf5c' : '#bfa66e'; txt = ch.toUpperCase() === 'P' ? '◉' : '◎'; }
     else if (ch === 'P' || ch === 'Q') { const open = gateOpen(s, ch, -1, r, c); bg = open ? '#d8c08e' : '#5b5470'; txt = open ? '' : '▥'; col = '#e8d3a2'; base.outline = '2px dashed ' + (ch === 'P' ? '#ff9a3d' : '#a07cf0'); }
-    else if (ch === 'k') { txt = '🔑'; }
-    else if (ch === 'L') { bg = '#8a5a35'; txt = '🔒'; }
-    else if (ch === 'g') { txt = '💎'; }
-    else if (ch === 'E') { bg = '#5fd38a'; txt = '⇲'; }
+    else if (ch === 'k') { txt = svgIcon('key', 20); col = '#8a5a00'; }
+    else if (ch === 'L') { bg = '#8a5a35'; txt = svgIcon('lock', 18); col = '#ffcf4a'; }
+    else if (ch === 'g') { txt = svgIcon('gem', 20); col = '#7a3fd0'; }
+    else if (ch === 'E') { bg = '#5fd38a'; txt = svgIcon('door', 18); col = '#0b3a20'; }
     const el = h('div', { style: { ...base, background: bg, color: col } }, txt);
     if (ch === 'P' || ch === 'p') el.style.boxShadow = 'inset 0 0 0 2px #ff9a3d'; if (ch === 'Q' || ch === 'q') el.style.boxShadow = 'inset 0 0 0 2px #a07cf0';
     if (s.b.some(b => b[0] === r && b[1] === c)) setKids(el, h('div', { style: { width: '80%', height: '80%', borderRadius: '40%', background: '#8f8299', boxShadow: 'inset -3px -3px 0 #5b5470' } }));
@@ -61,8 +62,8 @@ export function mount(root, ctx) {
     return el;
   }
   function pad(p, label) {
-    const b = (dir, t, area) => h('button', { class: 'btn', style: { gridArea: area, minHeight: '54px', padding: 0, fontSize: '22px' }, 'aria-label': label + ' ' + dir, onclick: () => doMove(dir, p) }, t);
-    return h('div', { style: { display: 'grid', gridTemplateAreas: '". u ." "l . r" ". d ."', gridTemplateColumns: 'repeat(3, 56px)', gap: '6px', justifyContent: 'center' } }, b('up', '▲', 'u'), b('left', '◀', 'l'), b('right', '▶', 'r'), b('down', '▼', 'd'));
+    const b = (dir, ic, area) => h('button', { class: 'btn', style: { gridArea: area, minHeight: '60px', padding: 0 }, 'aria-label': label + ' ' + dir, onclick: () => doMove(dir, p) }, svgIcon(ic, 28));
+    return h('div', { style: { display: 'grid', gridTemplateAreas: '". u ." "l . r" ". d ."', gridTemplateColumns: 'repeat(3, 64px)', gap: '8px', justifyContent: 'center' } }, b('up', 'arrowUp', 'u'), b('left', 'arrowLeft', 'l'), b('right', 'arrowRight', 'r'), b('down', 'arrowDown', 'd'));
   }
   function render() {
     const st = displayState(); if (!st) return;
@@ -73,9 +74,12 @@ export function mount(root, ctx) {
     const cols = st.s.g[0].length;
     setKids(ui.body, 
       h('p', { class: 'note' }, M.story),
-      h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('span', { class: 'lbl' }, `Gemas ${st.s.got}/${st.s.total} · llaves ${st.s.keys}`), h('button', { class: 'btn small ghost', onclick: () => sync.dispatch({ k: 'again' }) }, 'Reiniciar mapa')),
+      h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('span', { class: 'lbl' }, `Gemas ${st.s.got}/${st.s.total} · llaves ${st.s.keys}`), h('button', { class: 'btn small', onclick: () => sync.dispatch({ k: 'again' }) }, svgIcon('refresh', 16), 'Reiniciar mapa')),
       h('div', { style: { display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '2px', background: '#2e2148', padding: '4px', borderRadius: '12px' }, role: 'img', 'aria-label': 'Mapa' }, st.s.g.flatMap((row, r) => row.split('').map((ch, c) => tile(ch, r, c, st, av)))),
-      h('div', { class: 'note' }, `Coral (1): solo ${nm[0]} · Turquesa (2): solo ${nm[1]} · Las rejas se abren mientras alguien o una roca pisa su placa del mismo color · Las rocas se empujan y rellenan el agua · Ganan con todas las gemas y los dos en la salida.`),
+      h('div', { class: 'tags' },
+        h('span', { class: 'chip' }, h('i', { style: { background: av[0].body } }), '1: solo ' + nm[0]), h('span', { class: 'chip' }, h('i', { style: { background: av[1].body } }), '2: solo ' + nm[1]),
+        h('span', { class: 'chip' }, svgIcon('gem', 14), 'Gema'), h('span', { class: 'chip' }, svgIcon('key', 14), 'Llave'), h('span', { class: 'chip' }, svgIcon('lock', 14), 'Cerradura'), h('span', { class: 'chip' }, svgIcon('door', 14), 'Salida')),
+      h('p', { class: 'note' }, 'Las rejas punteadas se abren mientras alguien o una roca pisa la placa del mismo color. Las rocas se empujan y rellenan el agua.'),
       local ? h('div', { class: 'row', style: { justifyContent: 'space-around' } }, h('div', null, h('p', { class: 'lbl', style: { textAlign: 'center' } }, nm[0]), pad(0, nm[0])), h('div', null, h('p', { class: 'lbl', style: { textAlign: 'center' } }, nm[1]), pad(1, nm[1]))) : pad(myIdx, 'Mover'));
   }
   const kd = e => { const d = { arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right', w: 'up', s: 'down', a: 'left', d: 'right' }[e.key.toLowerCase()]; if (!d) return; e.preventDefault(); doMove(d, local && 'wasd'.includes(e.key.toLowerCase()) ? 0 : local ? 1 : myIdx); };

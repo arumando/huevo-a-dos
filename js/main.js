@@ -6,6 +6,7 @@ import { setSound, sfx } from './core/audio.js';
 import { Link } from './net/link.js';
 import { Room } from './net/room.js';
 import { ui, shareLink } from './ui/shell.js';
+import { celebrate } from './ui/fx.js';
 import { gameById, loadGame } from './games/registry.js';
 import { showWelcome } from './ui/welcome.js';
 import { showHub } from './ui/hub.js';
@@ -62,9 +63,11 @@ room.on('session-end', s => { const g = gameById(s.game); if (ui.current?.datase
 room.on('partner-exited', () => ui.toast('Tu pareja salió del juego.'));
 room.on('partner-joined', () => { const p = room.partner(); ui.toast(`${p?.name || 'Tu pareja'} llegó a la isla`, 'gold'); sfx.heart(); });
 room.on('partner-left', () => ui.toast('Tu pareja salió de la isla'));
-progress.on('achievement', a => { ui.toast('Logro: ' + a.name + ' (+' + a.coins + ' monedas)', 'gold'); sfx.coin(); });
-progress.on('levelup', l => { ui.toast('¡Subiste al nivel ' + l + '!', 'gold'); sfx.win(); });
-progress.on('mission-ready', m => ui.toast('Misión cumplida: ' + m.text + '. Reclámala en Logros.', 'gold'));
+// Los avisos de progreso esperan un instante para no tapar la tarjeta de resultado que aparece al mismo tiempo.
+const later = fn => setTimeout(fn, 120);
+progress.on('achievement', a => later(() => { ui.toast('Logro: ' + a.name + ' (+' + a.coins + ' monedas)', 'gold'); sfx.coin(); celebrate('small'); }));
+progress.on('levelup', l => later(() => { ui.toast('¡Subiste al nivel ' + l + '!', 'gold'); sfx.win(); }));
+progress.on('mission-ready', m => later(() => ui.toast('Misión cumplida: ' + m.text + '. Reclámala en Logros.', 'gold')));
 
 async function openGame(s) {
   const g = gameById(s.game); if (!g) { ui.toast('Ese juego no existe en esta versión.'); room.endSession(); return; }

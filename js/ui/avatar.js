@@ -18,22 +18,46 @@ export const TRAILS = [
   { id: 'ninguno', name: 'Sin estela', cost: 0 }, { id: 'corazones', name: 'Corazones', cost: 70 }, { id: 'chispas', name: 'Chispas', cost: 70 }, { id: 'arcoiris', name: 'Arcoíris', cost: 160 }
 ];
 
+// Utilidades de color para sombrear.
+function shade(hex, k) { const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255; if (k < 0) { r *= 1 + k; g *= 1 + k; b *= 1 + k; } else { r += (255 - r) * k; g += (255 - g) * k; b += (255 - b) * k; } return `rgb(${r | 0},${g | 0},${b | 0})`; }
+function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
 // Dibuja un pájaro centrado en (x, y) del contexto actual (coordenadas ya transformadas).
+// o: { face: 1|-1, flap, scale, label, labelColor, blink: 0..1 }
 export function drawBirdAvatar(ctx, x, y, av, o = {}) {
   av = av || {}; const face = o.face || 1, s = o.scale || 1, f = Math.sin(o.flap || 0) * 0.8, R = 13;
+  const body = av.body || '#ff7a59', belly = av.belly || '#ffc2ad', dark = shade(body, -0.35), light = shade(body, 0.35);
   ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
-  ctx.fillStyle = av.belly || '#ffc2ad';
-  for (const sd of [-1, 1]) { ctx.save(); ctx.scale(sd, 1); ctx.rotate(-0.3 - f); ctx.beginPath(); ctx.ellipse(-16, 0, 11, 5, 0, 0, 7); ctx.fill(); ctx.restore(); }
-  ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fillStyle = av.body || '#ff7a59'; ctx.fill();
-  ctx.beginPath(); ctx.ellipse(0, 5, 8, 6, 0, 0, 7); ctx.fillStyle = av.belly || '#ffc2ad'; ctx.fill();
-  const ex = face * 5;
-  if (av.eyes === 'feliz') { ctx.strokeStyle = '#1a1430'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(ex, -3, 2.6, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
-  else if (av.eyes === 'estrellas') { ctx.fillStyle = '#ffcf5c'; star(ctx, ex, -4, 4); }
-  else { ctx.beginPath(); ctx.arc(ex, -4, 3.6, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.beginPath(); ctx.arc(ex + face, -4, 1.8, 0, 7); ctx.fillStyle = '#1a1430'; ctx.fill(); }
-  if (av.eyes === 'lentes') { ctx.strokeStyle = '#1a1430'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(ex, -4, 4.2, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(ex - face * 9, -4, 3.6, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ex - face * 4.2, -4); ctx.lineTo(ex - face * 5.4, -4); ctx.stroke(); }
-  ctx.beginPath(); ctx.moveTo(face * 11, -2); ctx.lineTo(face * 18, 1); ctx.lineTo(face * 11, 3); ctx.fillStyle = '#ffcf5c'; ctx.fill();
+  // patitas y cola
+  ctx.strokeStyle = '#e8932e'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-4, 11); ctx.lineTo(-5, 16); ctx.moveTo(4, 11); ctx.lineTo(5, 16); ctx.stroke();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-face * 10, 2); ctx.lineTo(-face * 20, -2); ctx.lineTo(-face * 19, 6); ctx.closePath(); ctx.fill();
+  // alas (detrás del cuerpo)
+  for (const sd of [-1, 1]) { ctx.save(); ctx.scale(sd, 1); ctx.rotate(-0.3 - f); ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(-16, 0, 11, 5.5, 0, 0, 7); ctx.fill(); ctx.strokeStyle = shade(body, -0.5); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-22, 0); ctx.lineTo(-11, 0); ctx.stroke(); ctx.restore(); }
+  // cuerpo con luz y contorno
+  const g = ctx.createRadialGradient(-4, -6, 2, 0, 0, R + 2); g.addColorStop(0, light); g.addColorStop(0.55, body); g.addColorStop(1, dark);
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = shade(body, -0.45); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(face * 1, 5, 8, 6, 0, 0, 7); ctx.fillStyle = belly; ctx.fill();
+  // copete
+  if (!av.hat || av.hat === 'ninguno' || av.hat === 'flor') { ctx.strokeStyle = dark; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -12); ctx.quadraticCurveTo(-2, -18, 3, -19); ctx.moveTo(2, -12); ctx.quadraticCurveTo(3, -17, 7, -16); ctx.stroke(); }
+  // mejilla
+  ctx.fillStyle = 'rgba(255,120,150,.45)'; ctx.beginPath(); ctx.ellipse(face * 8, 3, 3, 2, 0, 0, 7); ctx.fill();
+  // ojos
+  const ex = face * 5, blink = o.blink || 0;
+  if (av.eyes === 'feliz' || blink > 0.5) { ctx.strokeStyle = '#1a1430'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(ex, -3, 2.6, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+  else if (av.eyes === 'estrellas') { ctx.fillStyle = '#ffcf5c'; star(ctx, ex, -4, 4.2); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex - 1, -5, 0.8, 0, 7); ctx.fill(); }
+  else { ctx.beginPath(); ctx.arc(ex, -4, 3.8, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.beginPath(); ctx.arc(ex + face * 0.9, -3.6, 2, 0, 7); ctx.fillStyle = '#1a1430'; ctx.fill(); ctx.beginPath(); ctx.arc(ex + face * 0.2, -4.6, 0.8, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); }
+  if (av.eyes === 'lentes') { ctx.strokeStyle = '#1a1430'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(ex, -4, 4.4, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(ex - face * 9, -4, 3.6, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ex - face * 4.4, -4); ctx.lineTo(ex - face * 5.4, -4); ctx.stroke(); }
+  // pico de dos tonos
+  ctx.fillStyle = '#ffcf5c'; ctx.beginPath(); ctx.moveTo(face * 11, -3); ctx.lineTo(face * 18.5, 0.5); ctx.lineTo(face * 11, 1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#e8932e'; ctx.beginPath(); ctx.moveTo(face * 11, 1); ctx.lineTo(face * 17, 1); ctx.lineTo(face * 11, 3.5); ctx.closePath(); ctx.fill();
   hat(ctx, av.hat, face);
-  if (o.label) { ctx.font = '900 11px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = o.labelColor || '#f7f0fb'; ctx.fillText(o.label, 0, av.hat && av.hat !== 'ninguno' ? -34 : -24); }
+  if (o.label) {
+    ctx.font = '900 11px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(o.label).width + 14, ty = av.hat && av.hat !== 'ninguno' ? -36 : -30;
+    roundRect(ctx, -tw / 2, ty - 9, tw, 18, 9); ctx.fillStyle = 'rgba(12,8,30,.78)'; ctx.fill();
+    ctx.fillStyle = o.labelColor || '#f7f0fb'; ctx.fillText(o.label, 0, ty + 0.5); ctx.textBaseline = 'alphabetic';
+  }
   ctx.restore();
 }
 function star(ctx, x, y, r) { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); }
@@ -53,6 +77,6 @@ function hat(ctx, id, face) {
 export function avatarCanvas(av, size = 56, o = {}) {
   const c = document.createElement('canvas'), dpr = Math.min(2, devicePixelRatio || 1);
   c.width = c.height = size * dpr; c.style.width = c.style.height = size + 'px'; c.className = 'av-canvas';
-  const x = c.getContext('2d'); x.scale(dpr, dpr); drawBirdAvatar(x, size / 2, size / 2 + 6, av, { scale: size / 50, face: o.face || 1, flap: 0.6 });
+  const x = c.getContext('2d'); x.scale(dpr, dpr); drawBirdAvatar(x, size / 2, size / 2 + size * 0.1, av, { scale: size / 52, face: o.face || 1, flap: 0.6 });
   return c;
 }
