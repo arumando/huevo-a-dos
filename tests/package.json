@@ -1,0 +1,7 @@
+{
+  "name": "isla-nido-pruebas",
+  "private": true,
+  "description": "Pruebas automatizadas de Isla Nido (no se usan para jugar).",
+  "scripts": { "test": "bash run_all.sh" },
+  "devDependencies": { "aedes": "0.51.3", "ws": "8.18.0", "playwright": "1.63.0" }
+}
